@@ -1,9 +1,21 @@
 FROM php:8.2-apache
 
-# Instalar extensões necessárias
+# Instalar extensões e dependências necessárias
 RUN apt-get update && apt-get install -y \
     libpq-dev \
-    && docker-php-ext-install pdo_pgsql pgsql
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
+    libzip-dev \
+    unzip \
+    git \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+    pdo_pgsql \
+    pgsql \
+    gd \
+    zip \
+    bcmath
 
 # Habilitar mod_rewrite do Apache
 RUN a2enmod rewrite
@@ -11,6 +23,7 @@ RUN a2enmod rewrite
 # Configurar Apache para usar o diretório public do Laravel
 ENV APACHE_DOCUMENT_ROOT /var/www/html/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
 # Copiar arquivos do projeto
 COPY . /var/www/html/
@@ -18,8 +31,11 @@ COPY . /var/www/html/
 # Instalar Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Instalar dependências do Laravel
-RUN composer install --no-dev --optimize-autoloader
+# Definir diretório de trabalho
+WORKDIR /var/www/html
+
+# Instalar dependências do Laravel (com flag para ignorar plataforma temporariamente)
+RUN composer install --no-dev --optimize-autoloader --ignore-platform-req=php --ignore-platform-req=ext-gd
 
 # Definir permissões
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
