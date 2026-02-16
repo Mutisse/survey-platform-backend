@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: survey-platform-backend
+    runtime: php
+    plan: free
+    buildCommand: |
+      composer install --no-dev --optimize-autoloader
+      php artisan config:cache
+      php artisan route:cache
+      php artisan view:cache
+    startCommand: php artisan serve --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        generateValue: true
+      - key: APP_URL
+        value: https://seu-app.onrender.com
+      - key: DB_CONNECTION
+        value: pgsql
+
+databases:
+  - name: survey-platform-db
+    plan: free
+    databaseName: survey_db
+    user: survey_user
