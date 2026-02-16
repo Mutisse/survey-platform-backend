@@ -1,4 +1,4 @@
-FROM php:8.2-apache
+FROM php:8.3-apache
 
 # Instalar extensões e dependências necessárias
 RUN apt-get update && apt-get install -y \
@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y \
     pgsql \
     gd \
     zip \
-    bcmath
+    bcmath \
+    opcache
 
 # Habilitar mod_rewrite do Apache
 RUN a2enmod rewrite
@@ -34,8 +35,8 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Definir diretório de trabalho
 WORKDIR /var/www/html
 
-# Instalar dependências do Laravel (com flag para ignorar plataforma temporariamente)
-RUN composer install --no-dev --optimize-autoloader --ignore-platform-req=php --ignore-platform-req=ext-gd
+# Instalar dependências do Laravel
+RUN composer install --no-dev --optimize-autoloader
 
 # Definir permissões
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
