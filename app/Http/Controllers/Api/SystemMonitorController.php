@@ -35,6 +35,7 @@ class SystemMonitorController extends Controller
                 'performance' => $this->getPerformanceMetrics(),
                 'recent_activity' => $this->getRecentActivity(),
                 'alerts' => $this->getSystemAlerts(),
+                'log_stats' => $this->getLogStats(), // ADICIONADO
             ];
 
             return response()->json([
@@ -54,7 +55,83 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Informações do sistema - VERSÃO ADAPTADA PARA RENDER
+     * Estatísticas de logs - DIRETO DO BANCO
+     */
+    private function getLogStats()
+    {
+        try {
+            // Verificar se a tabela existe
+            if (!DB::getSchemaBuilder()->hasTable('activity_logs')) {
+                return [
+                    'total_logs' => 0,
+                    'by_level' => [],
+                    'by_action' => [],
+                    'by_log_name' => [],
+                    'by_device' => [],
+                    'by_country' => [],
+                    'today' => 0,
+                    'this_week' => 0,
+                    'errors_today' => 0,
+                ];
+            }
+
+            return [
+                'total_logs' => DB::table('activity_logs')->count(),
+                'by_level' => DB::table('activity_logs')
+                    ->select('level_system', DB::raw('count(*) as total'))
+                    ->groupBy('level_system')
+                    ->get(),
+                'by_action' => DB::table('activity_logs')
+                    ->select('action', DB::raw('count(*) as total'))
+                    ->groupBy('action')
+                    ->orderBy('total', 'desc')
+                    ->limit(10)
+                    ->get(),
+                'by_log_name' => DB::table('activity_logs')
+                    ->select('log_name', DB::raw('count(*) as total'))
+                    ->groupBy('log_name')
+                    ->get(),
+                'by_device' => DB::table('activity_logs')
+                    ->select('device_type', DB::raw('count(*) as total'))
+                    ->whereNotNull('device_type')
+                    ->groupBy('device_type')
+                    ->get(),
+                'by_country' => DB::table('activity_logs')
+                    ->select('country', DB::raw('count(*) as total'))
+                    ->whereNotNull('country')
+                    ->groupBy('country')
+                    ->orderBy('total', 'desc')
+                    ->limit(10)
+                    ->get(),
+                'today' => DB::table('activity_logs')
+                    ->whereDate('created_at', today())
+                    ->count(),
+                'this_week' => DB::table('activity_logs')
+                    ->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])
+                    ->count(),
+                'errors_today' => DB::table('activity_logs')
+                    ->whereDate('created_at', today())
+                    ->whereIn('level_system', ['error', 'critical'])
+                    ->count(),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Erro ao buscar estatísticas de logs: ' . $e->getMessage());
+            return [
+                'total_logs' => 0,
+                'by_level' => [],
+                'by_action' => [],
+                'by_log_name' => [],
+                'by_device' => [],
+                'by_country' => [],
+                'today' => 0,
+                'this_week' => 0,
+                'errors_today' => 0,
+            ];
+        }
+    }
+
+    /**
+     * Informações do sistema
      */
     private function getSystemInfo()
     {
@@ -66,8 +143,8 @@ class SystemMonitorController extends Controller
             'timezone' => config('app.timezone'),
             'locale' => app()->getLocale(),
             'debug_mode' => config('app.debug'),
-            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'Render.com',
-            'server_name' => gethostname() ?: 'Render',
+            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'N/A',
+            'server_name' => gethostname(),
             'server_ip' => $_SERVER['SERVER_ADDR'] ?? 'N/A',
             'disk_usage' => $this->getDiskUsage(),
             'memory_usage' => $this->getMemoryUsage(),
@@ -77,7 +154,7 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Estatísticas do banco de dados
+     * Estatísticas do banco de dados - APENAS DADOS REAIS
      */
     private function getDatabaseStats()
     {
@@ -113,17 +190,19 @@ class SystemMonitorController extends Controller
             return [
                 'connection' => $connection->getName(),
                 'database' => $databaseName,
-                'size_mb' => $size[0]->size_mb ?? 0,
-                'active_connections' => $connections[0]->Value ?? 0,
-                'slow_queries' => $slowQueries[0]->Value ?? 0,
+                'size_mb' => isset($size[0]) ? $size[0]->size_mb : 0,
+                'active_connections' => isset($connections[0]) ? $connections[0]->Value : 0,
+                'slow_queries' => isset($slowQueries[0]) ? $slowQueries[0]->Value : 0,
                 'tables_count' => count($tables),
                 'tables' => $tables,
                 'status' => $this->checkDatabaseConnection() ? 'healthy' : 'error',
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter estatísticas do banco: ' . $e->getMessage());
+            Log::error('Erro ao obter estatísticas do banco: ' . $e->getMessage());
+
+            // Retornar erro claro - SEM MOCK
             return [
-                'error' => 'Erro ao obter estatísticas do banco',
+                'error' => 'Erro ao conectar ao banco de dados: ' . $e->getMessage(),
                 'status' => 'error',
                 'size_mb' => 0,
                 'active_connections' => 0,
@@ -135,18 +214,15 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Estatísticas de usuários
+     * Estatísticas de usuários - APENAS DADOS REAIS
      */
     private function getUserStats()
     {
         try {
             $total = User::count();
 
-            // Usar email_verified_at como indicador de usuário ativo
             $active = User::whereNotNull('email_verified_at')->count();
             $inactive = User::whereNull('email_verified_at')->count();
-
-            // Usar deleted_at para bloqueados (soft deletes)
             $blocked = User::onlyTrashed()->count();
 
             $byRole = User::select('role', DB::raw('count(*) as total'))
@@ -161,7 +237,6 @@ class SystemMonitorController extends Controller
 
             $verified = User::whereNotNull('email_verified_at')->count();
 
-            // Verificar se tabela student_documents existe
             $withDocuments = 0;
             if (DB::getSchemaBuilder()->hasTable('student_documents')) {
                 $withDocuments = DB::table('student_documents')->distinct('user_id')->count('user_id');
@@ -181,7 +256,9 @@ class SystemMonitorController extends Controller
                 'verification_rate' => $total > 0 ? round(($verified / $total) * 100, 2) : 0,
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter estatísticas de usuários: ' . $e->getMessage());
+            Log::error('Erro ao obter estatísticas de usuários: ' . $e->getMessage());
+
+            // Retornar zeros - SEM MOCK
             return [
                 'total' => 0,
                 'active' => 0,
@@ -199,7 +276,7 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Estatísticas de pesquisas
+     * Estatísticas de pesquisas - APENAS DADOS REAIS
      */
     private function getSurveyStats()
     {
@@ -210,7 +287,6 @@ class SystemMonitorController extends Controller
             $completed = Survey::where('status', 'completed')->count();
             $archived = Survey::where('status', 'archived')->count();
 
-            // Verificar se a tabela survey_responses existe
             $totalResponses = 0;
             $completedResponses = 0;
             $inProgress = 0;
@@ -228,7 +304,6 @@ class SystemMonitorController extends Controller
 
             $totalRewards = Survey::sum('reward') ?? 0;
 
-            // Verificar se a tabela payments existe
             $totalPaid = 0;
             if (DB::getSchemaBuilder()->hasTable('payments')) {
                 $totalPaid = DB::table('payments')->where('status', 'completed')->sum('amount') ?? 0;
@@ -250,7 +325,9 @@ class SystemMonitorController extends Controller
                 'pending_payments' => round($totalRewards - $totalPaid, 2),
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter estatísticas de pesquisas: ' . $e->getMessage());
+            Log::error('Erro ao obter estatísticas de pesquisas: ' . $e->getMessage());
+
+            // Retornar zeros - SEM MOCK
             return [
                 'total_surveys' => 0,
                 'active_surveys' => 0,
@@ -270,17 +347,15 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Métricas de performance
+     * Métricas de performance - APENAS DADOS REAIS
      */
     private function getPerformanceMetrics()
     {
         try {
-            // Cache stats
             $cacheHits = Cache::get('cache_hits', 0);
             $cacheMisses = Cache::get('cache_misses', 0);
             $cacheTotal = $cacheHits + $cacheMisses;
 
-            // Response times (se a tabela activity_logs existir)
             $responseTimes = 0;
             $requestsLastHour = 0;
 
@@ -288,8 +363,6 @@ class SystemMonitorController extends Controller
                 $responseTimes = DB::table('activity_logs')
                     ->whereNotNull('duration_ms')
                     ->where('created_at', '>=', now()->subDay())
-                    ->orderBy('created_at', 'desc')
-                    ->limit(100)
                     ->avg('duration_ms');
 
                 $requestsLastHour = DB::table('activity_logs')
@@ -310,7 +383,9 @@ class SystemMonitorController extends Controller
                 'current_memory_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter métricas de performance: ' . $e->getMessage());
+            Log::error('Erro ao obter métricas de performance: ' . $e->getMessage());
+
+            // Retornar zeros - SEM MOCK
             return [
                 'cache' => [
                     'hits' => 0,
@@ -327,7 +402,7 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Atividade recente
+     * Atividade recente - APENAS DADOS REAIS
      */
     private function getRecentActivity()
     {
@@ -349,14 +424,19 @@ class SystemMonitorController extends Controller
                     ->get();
             }
 
+            $newUsers = User::orderBy('created_at', 'desc')->limit(5)->get(['id', 'name', 'email', 'role', 'created_at']);
+            $newSurveys = Survey::orderBy('created_at', 'desc')->limit(5)->get(['id', 'title', 'user_id', 'status', 'created_at']);
+
             return [
                 'logs' => $logs,
                 'errors' => $errors,
-                'new_users' => User::orderBy('created_at', 'desc')->limit(5)->get(['id', 'name', 'email', 'role', 'created_at']),
-                'new_surveys' => Survey::orderBy('created_at', 'desc')->limit(5)->get(['id', 'title', 'user_id', 'status', 'created_at']),
+                'new_users' => $newUsers,
+                'new_surveys' => $newSurveys,
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter atividade recente: ' . $e->getMessage());
+            Log::error('Erro ao obter atividade recente: ' . $e->getMessage());
+
+            // Retornar vazio - SEM MOCK
             return [
                 'logs' => [],
                 'errors' => [],
@@ -367,29 +447,39 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Alertas do sistema
+     * Alertas do sistema - BASEADO EM DADOS REAIS
      */
     private function getSystemAlerts()
     {
         $alerts = [];
 
         try {
-            // Verificar espaço em disco (valores simulados para Render)
+            // Verificar espaço em disco
             $diskUsage = $this->getDiskUsage();
-            if ($diskUsage['free_gb'] < 1) {
-                $alerts[] = [
-                    'type' => 'critical',
-                    'title' => 'Espaço em disco baixo',
-                    'message' => "Apenas {$diskUsage['free_gb']}GB disponíveis",
-                    'action' => 'Liberar espaço imediatamente'
-                ];
-            } elseif ($diskUsage['free_gb'] < 2) {
+            if ($diskUsage['free_gb'] < 5) {
                 $alerts[] = [
                     'type' => 'warning',
-                    'title' => 'Espaço em disco reduzido',
-                    'message' => "{$diskUsage['free_gb']}GB disponíveis",
-                    'action' => 'Considerar limpeza de arquivos'
+                    'title' => 'Espaço em disco baixo',
+                    'message' => "Apenas {$diskUsage['free_gb']}GB disponíveis",
+                    'action' => 'Liberar espaço'
                 ];
+            }
+
+            // Verificar erros recentes
+            if (DB::getSchemaBuilder()->hasTable('activity_logs')) {
+                $recentErrors = DB::table('activity_logs')
+                    ->whereIn('level_system', ['error', 'critical'])
+                    ->where('created_at', '>=', now()->subHour())
+                    ->count();
+
+                if ($recentErrors > 10) {
+                    $alerts[] = [
+                        'type' => 'critical',
+                        'title' => 'Muitos erros no sistema',
+                        'message' => "{$recentErrors} erros na última hora",
+                        'action' => 'Verificar logs'
+                    ];
+                }
             }
 
             // Verificar conexão com banco
@@ -397,30 +487,8 @@ class SystemMonitorController extends Controller
                 $alerts[] = [
                     'type' => 'critical',
                     'title' => 'Problema na conexão com banco',
-                    'message' => 'Banco de dados pode estar inacessível',
-                    'action' => 'Verificar serviço do MySQL'
-                ];
-            }
-
-            // Verificar usuários não verificados
-            $unverifiedUsers = User::whereNull('email_verified_at')->count();
-            if ($unverifiedUsers > 100) {
-                $alerts[] = [
-                    'type' => 'warning',
-                    'title' => 'Muitos usuários não verificados',
-                    'message' => "{$unverifiedUsers} usuários aguardando verificação",
-                    'action' => 'Revisar processo de verificação'
-                ];
-            }
-
-            // Verificar pesquisas sem respostas
-            $emptySurveys = Survey::doesntHave('responses')->count();
-            if ($emptySurveys > 10) {
-                $alerts[] = [
-                    'type' => 'info',
-                    'title' => 'Pesquisas sem respostas',
-                    'message' => "{$emptySurveys} pesquisas não tiveram respostas",
-                    'action' => 'Revisar distribuição das pesquisas'
+                    'message' => 'Banco de dados inacessível',
+                    'action' => 'Verificar serviço MySQL'
                 ];
             }
 
@@ -445,90 +513,61 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Obter uso de disco - VERSÃO ADAPTADA PARA RENDER
+     * Obter uso de disco
      */
     private function getDiskUsage()
     {
         try {
-            // No Render.com, o disco é efêmero e limitado
-            // Vamos retornar valores simulados baseados em fatos reais do Render
-
-            // Verificar se conseguimos obter informações reais
             $path = storage_path();
-            if (function_exists('disk_total_space') && function_exists('disk_free_space')) {
-                $total = @disk_total_space($path);
-                $free = @disk_free_space($path);
+            $total = disk_total_space($path);
+            $free = disk_free_space($path);
+            $used = $total - $free;
 
-                if ($total !== false && $free !== false && $total > 0) {
-                    $used = $total - $free;
-                    return [
-                        'total_gb' => round($total / 1024 / 1024 / 1024, 2),
-                        'used_gb' => round($used / 1024 / 1024 / 1024, 2),
-                        'free_gb' => round($free / 1024 / 1024 / 1024, 2),
-                        'used_percent' => round(($used / $total) * 100, 2),
-                    ];
-                }
-            }
-
-            // Fallback - valores aproximados para Render (10GB de disco)
             return [
-                'total_gb' => 10,
-                'used_gb' => 3,
-                'free_gb' => 7,
-                'used_percent' => 30,
+                'total_gb' => round($total / 1024 / 1024 / 1024, 2),
+                'used_gb' => round($used / 1024 / 1024 / 1024, 2),
+                'free_gb' => round($free / 1024 / 1024 / 1024, 2),
+                'used_percent' => round(($used / $total) * 100, 2),
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter uso de disco: ' . $e->getMessage());
+            Log::error('Erro ao obter uso de disco: ' . $e->getMessage());
             return [
-                'total_gb' => 10,
-                'used_gb' => 3,
-                'free_gb' => 7,
-                'used_percent' => 30,
+                'total_gb' => 0,
+                'used_gb' => 0,
+                'free_gb' => 0,
+                'used_percent' => 0,
             ];
         }
     }
 
     /**
-     * Obter uso de memória - VERSÃO ADAPTADA PARA RENDER
+     * Obter uso de memória
      */
     private function getMemoryUsage()
     {
         try {
-            // No Render.com, comandos shell são bloqueados
-            // Usar apenas memory_get_usage()
-
-            $used = memory_get_usage(true) / 1024 / 1024;
-
-            // Render geralmente tem 512MB-1GB de RAM
             return [
-                'total_mb' => 512, // Valor aproximado
-                'used_mb' => round($used, 2),
-                'free_mb' => round(512 - $used, 2),
-                'used_percent' => round(($used / 512) * 100, 2),
+                'total_mb' => 0,
+                'used_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+                'free_mb' => 0,
+                'used_percent' => 0,
             ];
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter uso de memória: ' . $e->getMessage());
             return [
-                'total_mb' => 512,
-                'used_mb' => 128,
-                'free_mb' => 384,
-                'used_percent' => 25,
+                'total_mb' => 0,
+                'used_mb' => 0,
+                'free_mb' => 0,
+                'used_percent' => 0,
             ];
         }
     }
 
     /**
-     * Obter tempo de atividade do servidor - VERSÃO ADAPTADA PARA RENDER
+     * Obter tempo de atividade do servidor
      */
     private function getServerUptime()
     {
-        try {
-            // No Render.com, não temos acesso ao uptime
-            // Retornar informação amigável
-            return 'Serviço gerenciado pelo Render.com';
-        } catch (\Exception $e) {
-            return 'N/A';
-        }
+        return 'N/A';
     }
 
     /**
@@ -545,7 +584,7 @@ class SystemMonitorController extends Controller
                 ];
             }
         } catch (\Exception $e) {
-            Log::warning('Erro ao obter último cron: ' . $e->getMessage());
+            // Ignorar
         }
         return null;
     }
@@ -573,7 +612,6 @@ class SystemMonitorController extends Controller
                 'timestamp' => now(),
             ]);
         } catch (\Exception $e) {
-            Log::error('Erro no health check: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Erro no health check',
