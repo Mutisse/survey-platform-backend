@@ -438,85 +438,85 @@ class AdminController extends Controller
      * Criar novo usuário - CORRIGIDO: remover status, usar verification_status
      */
     public function createUser(Request $request)
-{
-    try {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:8',
-            'role' => 'required|in:student,participant,admin',
-            'phone' => 'required|string|max:20', // 🔥 MUDAR de 'nullable' para 'required'
-            'status' => 'nullable|in:active,pending,suspended,inactive',
-        ]);
+    {
+        try {
+            $validated = $request->validate([
+                'name' => 'required|string|max:255',
+                'email' => 'required|email|unique:users,email',
+                'password' => 'required|string|min:8',
+                'role' => 'required|in:student,participant,admin',
+                'phone' => 'required|string|max:20', // 🔥 MUDAR de 'nullable' para 'required'
+                'status' => 'nullable|in:active,pending,suspended,inactive',
+            ]);
 
-        // 🔧 Mapear status para verification_status - CORREÇÃO DE SEGURANÇA
-        $statusMapping = [
-            'active' => 'approved',
-            'pending' => 'pending',
-            'suspended' => 'rejected',
-            'inactive' => 'rejected'
-        ];
+            // 🔧 Mapear status para verification_status - CORREÇÃO DE SEGURANÇA
+            $statusMapping = [
+                'active' => 'approved',
+                'pending' => 'pending',
+                'suspended' => 'rejected',
+                'inactive' => 'rejected'
+            ];
 
-        // 🔥 CORREÇÃO CRÍTICA: Verificar se status existe e não é vazio
-        $verificationStatus = 'pending'; // valor padrão
-        if (isset($validated['status']) && !empty($validated['status'])) {
-            $verificationStatus = $statusMapping[$validated['status']] ?? 'pending';
-        } elseif ($validated['role'] === 'admin') {
-            $verificationStatus = 'approved'; // admins são aprovados automaticamente
+            // 🔥 CORREÇÃO CRÍTICA: Verificar se status existe e não é vazio
+            $verificationStatus = 'pending'; // valor padrão
+            if (isset($validated['status']) && !empty($validated['status'])) {
+                $verificationStatus = $statusMapping[$validated['status']] ?? 'pending';
+            } elseif ($validated['role'] === 'admin') {
+                $verificationStatus = 'approved'; // admins são aprovados automaticamente
+            }
+
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => bcrypt($validated['password']),
+                'role' => $validated['role'],
+                'phone' => $validated['phone'], // 🔥 AGORA É SEMPRE PREENCHIDO (required)
+                'verification_status' => $verificationStatus,
+            ]);
+
+            // Registrar atividade
+            ActivityLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'user_created',
+                'description' => "Usuário {$user->name} criado pelo administrador",
+                'metadata' => json_encode(['user_id' => $user->id, 'role' => $user->role]),
+            ]);
+
+            // Mapear verification_status de volta para status do frontend
+            $frontendStatusMapping = [
+                'approved' => 'active',
+                'pending' => 'pending',
+                'rejected' => 'suspended',
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Usuário criado com sucesso',
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'status' => $frontendStatusMapping[$user->verification_status] ?? 'pending',
+                    'verification_status' => $user->verification_status,
+                    'phone' => $user->phone, // 🔥 Incluir phone na resposta
+                ]
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro de validação',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro ao criar usuário',
+                'error' => env('APP_DEBUG') ? $e->getMessage() : 'Erro interno do servidor'
+            ], 500);
         }
-
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => bcrypt($validated['password']),
-            'role' => $validated['role'],
-            'phone' => $validated['phone'], // 🔥 AGORA É SEMPRE PREENCHIDO (required)
-            'verification_status' => $verificationStatus,
-        ]);
-
-        // Registrar atividade
-        ActivityLog::create([
-            'user_id' => $request->user()->id,
-            'action' => 'user_created',
-            'description' => "Usuário {$user->name} criado pelo administrador",
-            'metadata' => json_encode(['user_id' => $user->id, 'role' => $user->role]),
-        ]);
-
-        // Mapear verification_status de volta para status do frontend
-        $frontendStatusMapping = [
-            'approved' => 'active',
-            'pending' => 'pending',
-            'rejected' => 'suspended',
-        ];
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Usuário criado com sucesso',
-            'data' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
-                'status' => $frontendStatusMapping[$user->verification_status] ?? 'pending',
-                'verification_status' => $user->verification_status,
-                'phone' => $user->phone, // 🔥 Incluir phone na resposta
-            ]
-        ]);
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Erro de validação',
-            'errors' => $e->errors()
-        ], 422);
-    } catch (\Exception $e) {
-      
-        return response()->json([
-            'success' => false,
-            'message' => 'Erro ao criar usuário',
-            'error' => env('APP_DEBUG') ? $e->getMessage() : 'Erro interno do servidor'
-        ], 500);
     }
-}
 
     /**
      * Atualizar usuário - CORRIGIDO: remover status
@@ -1046,12 +1046,16 @@ class AdminController extends Controller
     /**
      * Listar pesquisas
      */
+    /**
+     * Listar pesquisas - VERSÃO CORRIGIDA
+     */
     public function getSurveys(Request $request)
     {
         try {
-            $query = Survey::with(['user' => function ($q) {
-                $q->select('id', 'name', 'email', 'role');
-            }]);
+            $query = Survey::query();
+
+            // 🔥 REMOVER o with('user') problemático
+            // Em vez disso, usar join ou carregar apenas o necessário
 
             if ($request->has('status')) {
                 $query->where('status', $request->status);
@@ -1082,6 +1086,9 @@ class AdminController extends Controller
             $surveys = $query->paginate($perPage, ['*'], 'page', $page);
 
             $formattedSurveys = $surveys->map(function ($survey) {
+                // 🔥 Carregar usuário apenas se necessário, de forma segura
+                $user = User::find($survey->user_id);
+
                 return [
                     'id' => $survey->id,
                     'title' => $survey->title,
@@ -1089,8 +1096,8 @@ class AdminController extends Controller
                     'category' => $survey->category,
                     'status' => $survey->status,
                     'researcher_id' => $survey->user_id,
-                    'researcher_name' => $survey->user ? $survey->user->name : null,
-                    'researcher_email' => $survey->user ? $survey->user->email : null,
+                    'researcher_name' => $user ? $user->name : null,
+                    'researcher_email' => $user ? $user->email : null,
                     'target_responses' => $survey->target_responses,
                     'current_responses' => $survey->current_responses,
                     'reward' => $survey->reward,
@@ -1109,6 +1116,7 @@ class AdminController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
+            Log::error('Erro em getSurveys: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Erro ao carregar pesquisas',
