@@ -14,6 +14,8 @@ use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\Api\SurveyResponseController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\ActivityLogController;
+use App\Http\Controllers\Api\SystemMonitorController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 
@@ -389,6 +391,30 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
+
+// ==============================================
+// ROTAS DE MONITORAMENTO (ACTIVITY LOGS)
+// ==============================================
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('logs')->group(function () {
+    Route::get('/', [ActivityLogController::class, 'index']);
+    Route::get('/stats', [ActivityLogController::class, 'stats']);
+    Route::get('/errors', [ActivityLogController::class, 'errors']);
+    Route::get('/user/{userId}', [ActivityLogController::class, 'userLogs']);
+    Route::get('/subject/{subjectType}/{subjectId}', [ActivityLogController::class, 'subjectLogs']);
+    Route::get('/export', [ActivityLogController::class, 'export']);
+    Route::delete('/clean', [ActivityLogController::class, 'clean']);
+    Route::get('/{id}', [ActivityLogController::class, 'show']);
+});
+
+// ==============================================
+// ROTAS DE MONITORAMENTO DO SISTEMA (SEM CONFLITO)
+// ==============================================
+Route::middleware(['auth:sanctum', 'role:admin'])->prefix('monitoramento')->group(function () {
+    // 👇 Nome alterado para dashboard_monitoramento
+    Route::get('/dashboard_monitoramento', [SystemMonitorController::class, 'dashboard']);
+    Route::get('/health', [SystemMonitorController::class, 'healthCheck']);
+});
+
 // ==============================================
 // ✅ ROTAS DE TESTE E HEALTH CHECK
 // ==============================================
@@ -417,7 +443,7 @@ Route::get('/test-db', function () {
         ], 500);
     }
 });
-Route::get('/debug-ssl', function() {
+Route::get('/debug-ssl', function () {
     $sslPath = storage_path('ssl/global-bundle.pem');
 
     $info = [

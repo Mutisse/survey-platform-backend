@@ -12,9 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Registrar middleware de role
+        // Registrar middlewares
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
+            'unique.device' => \App\Http\Middleware\CheckUniqueDevice::class, // ← NOVO MIDDLEWARE
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
