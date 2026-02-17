@@ -417,7 +417,33 @@ Route::get('/test-db', function () {
         ], 500);
     }
 });
+Route::get('/debug-ssl', function() {
+    $sslPath = storage_path('ssl/global-bundle.pem');
 
+    $info = [
+        'ssl_file_path' => $sslPath,
+        'file_exists' => file_exists($sslPath),
+        'is_readable' => is_readable($sslPath),
+        'file_size' => file_exists($sslPath) ? filesize($sslPath) : null,
+        'env_vars' => [
+            'DB_SSL' => env('DB_SSL'),
+            'DB_SSL_VERIFY' => env('DB_SSL_VERIFY'),
+            'MYSQL_ATTR_SSL_CA' => env('MYSQL_ATTR_SSL_CA'),
+        ]
+    ];
+
+    // Tentar conectar ao banco
+    try {
+        DB::connection()->getPdo();
+        $info['db_connection'] = 'SUCCESS';
+        $info['db_name'] = DB::connection()->getDatabaseName();
+    } catch (\Exception $e) {
+        $info['db_connection'] = 'ERROR';
+        $info['db_error'] = $e->getMessage();
+    }
+
+    return response()->json($info);
+});
 // ==============================================
 // ✅ FALLBACK - ROTA 404
 // ==============================================
