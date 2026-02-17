@@ -1,9 +1,9 @@
 <?php
-// database/migrations/2024_01_01_000006_create_participant_stats_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // <-- ADICIONAR
 
 return new class extends Migration
 {
@@ -36,9 +36,12 @@ return new class extends Migration
             $table->index('total_earnings');
             $table->index('last_survey_date');
 
-            // Check constraints
-            $table->check("gender IN ('masculino', 'feminino', 'outro')");
+            // REMOVER esta linha:
+            // $table->check("gender IN ('masculino', 'feminino', 'outro')");
         });
+
+        // ADICIONAR constraint CHECK separadamente:
+        DB::statement("ALTER TABLE participant_stats ADD CONSTRAINT participant_stats_gender_check CHECK (gender IN ('masculino', 'feminino', 'outro') OR gender IS NULL)");
     }
 
     public function down()

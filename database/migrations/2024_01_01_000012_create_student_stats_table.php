@@ -1,9 +1,9 @@
 <?php
-// database/migrations/2024_01_01_000012_create_student_stats_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // <-- ADICIONAR
 
 return new class extends Migration
 {
@@ -31,9 +31,12 @@ return new class extends Migration
             $table->index('course');
             $table->index('documents_submitted');
 
-            // Check constraints
-            $table->check("gender IN ('masculino', 'feminino')");
+            // REMOVER esta linha:
+            // $table->check("gender IN ('masculino', 'feminino')");
         });
+
+        // ADICIONAR constraint CHECK separadamente:
+        DB::statement("ALTER TABLE student_stats ADD CONSTRAINT student_stats_gender_check CHECK (gender IN ('masculino', 'feminino'))");
     }
 
     public function down()

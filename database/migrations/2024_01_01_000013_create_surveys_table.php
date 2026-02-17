@@ -4,6 +4,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // <-- ADICIONAR
 
 return new class extends Migration
 {
@@ -56,9 +57,12 @@ return new class extends Migration
             $table->index('start_date');
             $table->index('end_date');
 
-            // Check constraint for status
-            $table->check("status IN ('draft', 'active', 'paused', 'completed', 'archived', 'pending')");
+            // REMOVER esta linha:
+            // $table->check("status IN ('draft', 'active', 'paused', 'completed', 'archived', 'pending')");
         });
+
+        // ADICIONAR constraint CHECK separadamente:
+        DB::statement("ALTER TABLE surveys ADD CONSTRAINT surveys_status_check CHECK (status IN ('draft', 'active', 'paused', 'completed', 'archived', 'pending'))");
     }
 
     public function down()

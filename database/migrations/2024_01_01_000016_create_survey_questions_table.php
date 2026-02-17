@@ -48,7 +48,7 @@ return new class extends Migration
             $table->index('order');
 
             // Check constraint for question types
-            $table->check("type IN ('text', 'paragraph', 'multiple_choice', 'checkbox', 'dropdown', 'linear_scale', 'date', 'time', 'file_upload', 'rating', 'matrix', 'ranking', 'slider')");
+          //  $table->check("type IN ('text', 'paragraph', 'multiple_choice', 'checkbox', 'dropdown', 'linear_scale', 'date', 'time', 'file_upload', 'rating', 'matrix', 'ranking', 'slider')");
         });
     }
 

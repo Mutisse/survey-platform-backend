@@ -30,7 +30,7 @@ return new class extends Migration
             $table->index('survey_count');
 
             // Check constraint for institution types
-            $table->check("type IN ('university', 'college', 'research_center', 'company', 'ngo', 'government')");
+          //  $table->check("type IN ('university', 'college', 'research_center', 'company', 'ngo', 'government')");
         });
     }
 

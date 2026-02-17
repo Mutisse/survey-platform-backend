@@ -50,7 +50,7 @@ return new class extends Migration
             $table->index('payment_date');
 
             // Check constraint for status
-            $table->check("status IN ('in_progress', 'completed', 'abandoned')");
+          ///  $table->check("status IN ('in_progress', 'completed', 'abandoned')");
         });
     }
 

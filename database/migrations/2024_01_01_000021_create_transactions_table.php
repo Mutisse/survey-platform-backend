@@ -29,8 +29,8 @@ return new class extends Migration
             $table->index('type');
 
             // Check constraints
-            $table->check("type IN ('survey_earnings', 'withdrawal', 'refund', 'bonus', 'adjustment')");
-            $table->check("status IN ('pending', 'completed', 'failed', 'cancelled')");
+           // $table->check("type IN ('survey_earnings', 'withdrawal', 'refund', 'bonus', 'adjustment')");
+           // $table->check("status IN ('pending', 'completed', 'failed', 'cancelled')");
         });
     }
 

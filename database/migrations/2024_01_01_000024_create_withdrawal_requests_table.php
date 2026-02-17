@@ -27,8 +27,8 @@ return new class extends Migration
             $table->index('status');
 
             // Check constraints
-            $table->check("status IN ('pending', 'processing', 'approved', 'rejected', 'completed', 'cancelled')");
-            $table->check("payment_method IN ('mpesa', 'bank_transfer', 'cash')");
+           // $table->check("status IN ('pending', 'processing', 'approved', 'rejected', 'completed', 'cancelled')");
+           // $table->check("payment_method IN ('mpesa', 'bank_transfer', 'cash')");
         });
     }
 

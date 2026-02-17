@@ -1,9 +1,9 @@
 <?php
-// database/migrations/2024_01_01_000007_create_payments_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // <-- ADICIONAR
 
 return new class extends Migration
 {
@@ -32,10 +32,14 @@ return new class extends Migration
             $table->index('mpesa_reference');
             $table->index('created_at');
 
-            // Check constraints
-            $table->check("currency IN ('MZN', 'USD', 'ZAR')");
-            $table->check("status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')");
+            // REMOVER estas linhas:
+            // $table->check("currency IN ('MZN', 'USD', 'ZAR')");
+            // $table->check("status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')");
         });
+
+        // ADICIONAR constraints CHECK separadamente:
+        DB::statement("ALTER TABLE payments ADD CONSTRAINT payments_currency_check CHECK (currency IN ('MZN', 'USD', 'ZAR'))");
+        DB::statement("ALTER TABLE payments ADD CONSTRAINT payments_status_check CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled'))");
     }
 
     public function down()

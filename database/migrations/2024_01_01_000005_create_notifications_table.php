@@ -4,6 +4,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // <-- IMPORTANTE: Adicionar esta linha
 
 return new class extends Migration
 {
@@ -29,9 +30,12 @@ return new class extends Migration
             $table->index('expires_at');
             $table->index('priority');
 
-            // Check constraint for notification types
-            $table->check("type IN ('survey_response', 'survey_approved', 'survey_rejected', 'payment_received', 'withdrawal_processed', 'general_announcement')");
+            // REMOVER esta linha (não funciona no PostgreSQL):
+            // $table->check("type IN ('survey_response', 'survey_approved', 'survey_rejected', 'payment_received', 'withdrawal_processed', 'general_announcement')");
         });
+
+        // ADICIONAR a constraint CHECK separadamente:
+        DB::statement("ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN ('survey_response', 'survey_approved', 'survey_rejected', 'payment_received', 'withdrawal_processed', 'general_announcement'))");
     }
 
     public function down()

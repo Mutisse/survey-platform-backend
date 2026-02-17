@@ -1,9 +1,9 @@
 <?php
-// database/migrations/2024_01_01_000011_create_student_documents_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // <-- ADICIONAR
 
 return new class extends Migration
 {
@@ -24,10 +24,14 @@ return new class extends Migration
             $table->index('user_id');
             $table->index('status');
 
-            // Check constraints
-            $table->check("document_type IN ('student_card', 'enrollment_proof', 'other')");
-            $table->check("status IN ('pending', 'approved', 'rejected')");
+            // REMOVER estas linhas:
+            // $table->check("document_type IN ('student_card', 'enrollment_proof', 'other')");
+            // $table->check("status IN ('pending', 'approved', 'rejected')");
         });
+
+        // ADICIONAR constraints CHECK separadamente:
+        DB::statement("ALTER TABLE student_documents ADD CONSTRAINT student_documents_document_type_check CHECK (document_type IN ('student_card', 'enrollment_proof', 'other'))");
+        DB::statement("ALTER TABLE student_documents ADD CONSTRAINT student_documents_status_check CHECK (status IN ('pending', 'approved', 'rejected'))");
     }
 
     public function down()
