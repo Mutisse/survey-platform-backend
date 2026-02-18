@@ -392,6 +392,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 
+
 // ==============================================
 // ROTAS DE MONITORAMENTO (ACTIVITY LOGS)
 // ==============================================
@@ -404,11 +405,11 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('logs')->group(functio
     Route::get('/export', [ActivityLogController::class, 'export']);
     Route::delete('/clean', [ActivityLogController::class, 'clean']);
     Route::get('/{id}', [ActivityLogController::class, 'show']);
-    // Dentro do grupo de logs
+
+    // ✅ AS ROTAS ESTÃO AQUI! DENTRO DO GRUPO!
     Route::get('/chart-data', [ActivityLogController::class, 'chartData']);
     Route::get('/detailed-stats', [ActivityLogController::class, 'detailedStats']);
 });
-
 // ==============================================
 // ROTAS DE MONITORAMENTO DO SISTEMA (SEM CONFLITO)
 // ==============================================
