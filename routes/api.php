@@ -397,28 +397,32 @@ Route::middleware('auth:sanctum')->group(function () {
 // ROTAS DE MONITORAMENTO (ACTIVITY LOGS)
 // ==============================================
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('logs')->group(function () {
+    // 📋 ROTAS BÁSICAS
     Route::get('/', [ActivityLogController::class, 'index']);
     Route::get('/stats', [ActivityLogController::class, 'stats']);
     Route::get('/errors', [ActivityLogController::class, 'errors']);
-    Route::get('/user/{userId}', [ActivityLogController::class, 'userLogs']);
-    Route::get('/subject/{subjectType}/{subjectId}', [ActivityLogController::class, 'subjectLogs']);
     Route::get('/export', [ActivityLogController::class, 'export']);
     Route::delete('/clean', [ActivityLogController::class, 'clean']);
-    Route::get('/{id}', [ActivityLogController::class, 'show']);
 
-    // ✅ AS ROTAS ESTÃO AQUI! DENTRO DO GRUPO!
+    // 📊 ROTAS PARA GRÁFICOS E ESTATÍSTICAS DETALHADAS
     Route::get('/chart-data', [ActivityLogController::class, 'chartData']);
     Route::get('/detailed-stats', [ActivityLogController::class, 'detailedStats']);
+
+    // 👥 ROTAS COM PARÂMETROS ESPECÍFICOS
+    Route::get('/user/{userId}', [ActivityLogController::class, 'userLogs']);
+    Route::get('/subject/{subjectType}/{subjectId}', [ActivityLogController::class, 'subjectLogs']);
+
+    // ⚠️ ROTA GENÉRICA POR ÚLTIMO (para não conflitar com as específicas)
+    Route::get('/{id}', [ActivityLogController::class, 'show']);
 });
+
 // ==============================================
-// ROTAS DE MONITORAMENTO DO SISTEMA (SEM CONFLITO)
+// ROTAS DE MONITORAMENTO DO SISTEMA
 // ==============================================
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('monitoramento')->group(function () {
-    // 👇 Nome alterado para dashboard_monitoramento
     Route::get('/dashboard_monitoramento', [SystemMonitorController::class, 'dashboard']);
     Route::get('/health', [SystemMonitorController::class, 'healthCheck']);
 });
-
 
 
 // ==============================================

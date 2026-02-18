@@ -264,7 +264,10 @@ class ActivityLogController extends Controller
     /**
      * Display the specified log.
      */
-    public function show($id)
+    /**
+     * Display the specified log.
+     */
+    public function show($id)  // ← LINHA ~250
     {
         try {
             $log = DB::table('activity_logs')->find($id);
@@ -272,7 +275,7 @@ class ActivityLogController extends Controller
             if (!$log) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Log não encontrado'
+                    'message' => 'Log não encontrado'  // ← É DAQUI QUE VEM O ERRO!
                 ], 404);
             }
 
