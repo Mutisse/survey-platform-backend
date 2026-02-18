@@ -1,7 +1,7 @@
 <?php
 // routes/api.php
 
-use App\Http\Controllers\Api\AcademicDataController;
+use App\Http\Controllers\Api\UnifiedConfigController; // ✅ NOVO CONTROLLER
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\StudentController;
@@ -10,7 +10,6 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\StudentDashboardController;
-use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\Api\SurveyResponseController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PaymentController;
@@ -29,26 +28,26 @@ use Illuminate\Support\Facades\DB;
 // ✅ ROTAS PÚBLICAS - SEM AUTENTICAÇÃO
 // ==============================================
 
-// Dados acadêmicos (público)
+// Dados acadêmicos (público) - ✅ AGORA USA UnifiedConfigController
 Route::prefix('academic-data')->group(function () {
-    Route::get('/universities', [AcademicDataController::class, 'getUniversities']);
-    Route::get('/institution-types', [AcademicDataController::class, 'getInstitutionTypes']);
-    Route::get('/courses', [AcademicDataController::class, 'getCourses']);
-    Route::get('/academic-levels', [AcademicDataController::class, 'getAcademicLevels']);
-    Route::get('/research-areas', [AcademicDataController::class, 'getResearchAreas']);
-    Route::get('/all', [AcademicDataController::class, 'getAllAcademicData']);
+    Route::get('/universities', [UnifiedConfigController::class, 'getStudentConfigs']); // universities vem daqui
+    Route::get('/institution-types', [UnifiedConfigController::class, 'getStudentConfigs']);
+    Route::get('/courses', [UnifiedConfigController::class, 'getStudentConfigs']);
+    Route::get('/academic-levels', [UnifiedConfigController::class, 'getStudentConfigs']);
+    Route::get('/research-areas', [UnifiedConfigController::class, 'getParticipantConfigs']);
+    Route::get('/all', [UnifiedConfigController::class, 'getAllConfigs']);
 });
 
-// Configurações (público)
+// Configurações (público) - ✅ USA UnifiedConfigController
 Route::prefix('config')->group(function () {
-    Route::get('/all', [ConfigController::class, 'getAllConfigurations']);
-    Route::get('/type/{type}', [ConfigController::class, 'getConfigurationsByType']);
-    Route::get('/participant', [ConfigController::class, 'getParticipantConfigurations']);
-    Route::get('/student', [ConfigController::class, 'getStudentConfigurations']);
-    Route::get('/universities-list', [ConfigController::class, 'getUniversities']);
-    Route::get('/participant-stats', [ConfigController::class, 'getParticipantStats']);
-    Route::get('/example-participants', [ConfigController::class, 'getExampleParticipants']);
+    Route::get('/all', [UnifiedConfigController::class, 'getAllConfigs']);
+    Route::get('/type/{tipo}', [UnifiedConfigController::class, 'listConfigs']); // mudado para listConfigs
+    Route::get('/participant', [UnifiedConfigController::class, 'getParticipantConfigs']);
+    Route::get('/student', [UnifiedConfigController::class, 'getStudentConfigs']);
+    Route::get('/universities-list', [UnifiedConfigController::class, 'getStudentConfigs']); // universities daqui
 });
+
+// REMOVIDO: ConfigController antigo foi substituído
 
 // Rotas públicas de surveys (apenas leitura)
 Route::prefix('surveys')->group(function () {
@@ -248,13 +247,15 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // -------------------------------------------------
-    // Configurações (admin)
+    // Configurações (admin) - ✅ CRUD COMPLETO
     // -------------------------------------------------
     Route::prefix('config')->middleware('role:admin')->group(function () {
-        Route::get('/admin-dashboard', [ConfigController::class, 'getAdminDashboard']);
-        Route::post('/add', [ConfigController::class, 'addConfiguration']);
-        Route::put('/update/{id}', [ConfigController::class, 'updateConfiguration']);
-        Route::delete('/delete/{id}', [ConfigController::class, 'deleteConfiguration']);
+        Route::get('/types', [UnifiedConfigController::class, 'listTypes']); // Listar todos os tipos
+        Route::post('/create', [UnifiedConfigController::class, 'createConfig']); // Criar
+        Route::get('/list/{tipo}', [UnifiedConfigController::class, 'listConfigs']); // Listar por tipo
+        Route::get('/{id}', [UnifiedConfigController::class, 'getConfig']); // Buscar por ID
+        Route::put('/{id}', [UnifiedConfigController::class, 'updateConfig']); // Atualizar
+        Route::delete('/{id}', [UnifiedConfigController::class, 'deleteConfig']); // Deletar
     });
 
     // -------------------------------------------------
@@ -293,9 +294,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/reports/generate', [AdminController::class, 'generateReport']);
         Route::get('/reports/{id}', [AdminController::class, 'getReport']);
 
-        // Universidades e Configurações Acadêmicas
-        Route::apiResource('universities', AcademicDataController::class);
-        Route::put('/academic-configurations/{type}/toggle', [AcademicDataController::class, 'toggleConfiguration']);
+        // ✅ Universidades e Configurações Acadêmicas (agora com UnifiedConfigController)
+        Route::apiResource('universities', UnifiedConfigController::class); // Ajustar se necessário
+        Route::put('/academic-configurations/{type}/toggle', [UnifiedConfigController::class, 'toggleConfiguration']);
 
         // Notificações
         Route::get('/notifications', [NotificationController::class, 'index']);
@@ -453,6 +454,7 @@ Route::get('/test-db', function () {
         ], 500);
     }
 });
+
 Route::get('/debug-ssl', function () {
     $sslPath = storage_path('ssl/global-bundle.pem');
 
@@ -480,6 +482,7 @@ Route::get('/debug-ssl', function () {
 
     return response()->json($info);
 });
+
 // ==============================================
 // ✅ FALLBACK - ROTA 404
 // ==============================================
