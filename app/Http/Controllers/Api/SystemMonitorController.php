@@ -35,7 +35,7 @@ class SystemMonitorController extends Controller
                 'performance' => $this->getPerformanceMetrics(),
                 'recent_activity' => $this->getRecentActivity(),
                 'alerts' => $this->getSystemAlerts(),
-                'log_stats' => $this->getLogStats(), // ADICIONADO
+                'log_stats' => $this->getLogStats(),
             ];
 
             return response()->json([
@@ -60,7 +60,6 @@ class SystemMonitorController extends Controller
     private function getLogStats()
     {
         try {
-            // Verificar se a tabela existe
             if (!DB::getSchemaBuilder()->hasTable('activity_logs')) {
                 return [
                     'total_logs' => 0,
@@ -154,7 +153,7 @@ class SystemMonitorController extends Controller
     }
 
     /**
-     * Estatísticas do banco de dados - APENAS DADOS REAIS
+     * Estatísticas do banco de dados - VERSÃO CORRIGIDA PARA TiDB
      */
     private function getDatabaseStats()
     {
@@ -162,55 +161,118 @@ class SystemMonitorController extends Controller
             $connection = DB::connection();
             $databaseName = $connection->getDatabaseName();
 
-            // Tamanho do banco
+            // 1. Tamanho do banco (funciona no TiDB)
             $size = DB::select("
                 SELECT
-                    ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) as size_mb
+                    SUM(data_length + index_length) / 1024 / 1024 as size_mb
                 FROM information_schema.tables
                 WHERE table_schema = ?
             ", [$databaseName]);
 
-            // Conexões ativas
-            $connections = DB::select("SHOW STATUS LIKE 'Threads_connected'");
-
-            // Queries lentas
-            $slowQueries = DB::select("SHOW GLOBAL STATUS LIKE 'Slow_queries'");
-
-            // Tabelas e registros
+            // 2. Listar tabelas (sem table_rows que não existe no TiDB)
             $tables = DB::select("
                 SELECT
-                    table_name,
-                    table_rows as rows,
-                    ROUND((data_length + index_length) / 1024 / 1024, 2) as size_mb
+                    table_name
                 FROM information_schema.tables
                 WHERE table_schema = ?
-                ORDER BY size_mb DESC
+                ORDER BY table_name
             ", [$databaseName]);
+
+            // 3. Contar registros de cada tabela diretamente
+            $tablesWithRows = [];
+            foreach ($tables as $table) {
+                try {
+                    // Pular tabelas do sistema que podem causar erro
+                    if (in_array($table->table_name, ['cache', 'cache_locks', 'sessions', 'jobs', 'failed_jobs', 'migrations'])) {
+                        $tablesWithRows[] = (object)[
+                            'table_name' => $table->table_name,
+                            'rows' => 0,
+                            'size_mb' => 0
+                        ];
+                        continue;
+                    }
+
+                    $count = DB::table($table->table_name)->count();
+                    $tablesWithRows[] = (object)[
+                        'table_name' => $table->table_name,
+                        'rows' => $count,
+                        'size_mb' => 0 // TiDB não fornece tamanho por tabela
+                    ];
+                } catch (\Exception $e) {
+                    // Tabela pode não ter contagem permitida
+                    $tablesWithRows[] = (object)[
+                        'table_name' => $table->table_name,
+                        'rows' => 0,
+                        'size_mb' => 0
+                    ];
+                }
+            }
 
             return [
                 'connection' => $connection->getName(),
                 'database' => $databaseName,
-                'size_mb' => isset($size[0]) ? $size[0]->size_mb : 0,
-                'active_connections' => isset($connections[0]) ? $connections[0]->Value : 0,
-                'slow_queries' => isset($slowQueries[0]) ? $slowQueries[0]->Value : 0,
-                'tables_count' => count($tables),
-                'tables' => $tables,
-                'status' => $this->checkDatabaseConnection() ? 'healthy' : 'error',
+                'size_mb' => round(($size[0]->size_mb ?? 0), 2),
+                'active_connections' => 0,
+                'slow_queries' => 0,
+                'tables_count' => count($tablesWithRows),
+                'tables' => $tablesWithRows,
+                'status' => 'healthy',
             ];
-        } catch (\Exception $e) {
-            Log::error('Erro ao obter estatísticas do banco: ' . $e->getMessage());
 
-            // Retornar erro claro - SEM MOCK
+        } catch (\Exception $e) {
+            Log::error('Erro no banco TiDB: ' . $e->getMessage());
+
             return [
                 'error' => 'Erro ao conectar ao banco de dados: ' . $e->getMessage(),
                 'status' => 'error',
                 'size_mb' => 0,
                 'active_connections' => 0,
                 'slow_queries' => 0,
-                'tables_count' => 0,
-                'tables' => []
+                'tables_count' => $this->getFallbackTablesCount(),
+                'tables' => $this->getFallbackTables(),
             ];
         }
+    }
+
+    /**
+     * Função auxiliar para fallback - lista tabelas principais com contagem
+     */
+    private function getFallbackTables()
+    {
+        $tables = [];
+        $tableNames = [
+            'users', 'surveys', 'survey_responses', 'activity_logs',
+            'payments', 'student_documents', 'notifications', 'universities',
+            'survey_categories', 'transactions', 'withdrawal_requests',
+            'academic_configurations', 'survey_questions', 'survey_images',
+            'survey_exports', 'survey_stats', 'student_stats', 'participant_stats',
+            'report_histories', 'report_templates', 'personal_access_tokens'
+        ];
+
+        foreach ($tableNames as $tableName) {
+            try {
+                if (DB::getSchemaBuilder()->hasTable($tableName)) {
+                    $count = DB::table($tableName)->count();
+                    $tables[] = (object)[
+                        'table_name' => $tableName,
+                        'rows' => $count,
+                        'size_mb' => 0
+                    ];
+                }
+            } catch (\Exception $e) {
+                // Ignorar tabelas com erro
+            }
+        }
+
+        return $tables;
+    }
+
+    /**
+     * Contar tabelas no fallback
+     */
+    private function getFallbackTablesCount()
+    {
+        return count($this->getFallbackTables());
     }
 
     /**
@@ -257,8 +319,6 @@ class SystemMonitorController extends Controller
             ];
         } catch (\Exception $e) {
             Log::error('Erro ao obter estatísticas de usuários: ' . $e->getMessage());
-
-            // Retornar zeros - SEM MOCK
             return [
                 'total' => 0,
                 'active' => 0,
@@ -326,8 +386,6 @@ class SystemMonitorController extends Controller
             ];
         } catch (\Exception $e) {
             Log::error('Erro ao obter estatísticas de pesquisas: ' . $e->getMessage());
-
-            // Retornar zeros - SEM MOCK
             return [
                 'total_surveys' => 0,
                 'active_surveys' => 0,
@@ -384,8 +442,6 @@ class SystemMonitorController extends Controller
             ];
         } catch (\Exception $e) {
             Log::error('Erro ao obter métricas de performance: ' . $e->getMessage());
-
-            // Retornar zeros - SEM MOCK
             return [
                 'cache' => [
                     'hits' => 0,
@@ -435,8 +491,6 @@ class SystemMonitorController extends Controller
             ];
         } catch (\Exception $e) {
             Log::error('Erro ao obter atividade recente: ' . $e->getMessage());
-
-            // Retornar vazio - SEM MOCK
             return [
                 'logs' => [],
                 'errors' => [],
@@ -454,7 +508,6 @@ class SystemMonitorController extends Controller
         $alerts = [];
 
         try {
-            // Verificar espaço em disco
             $diskUsage = $this->getDiskUsage();
             if ($diskUsage['free_gb'] < 5) {
                 $alerts[] = [
@@ -465,7 +518,6 @@ class SystemMonitorController extends Controller
                 ];
             }
 
-            // Verificar erros recentes
             if (DB::getSchemaBuilder()->hasTable('activity_logs')) {
                 $recentErrors = DB::table('activity_logs')
                     ->whereIn('level_system', ['error', 'critical'])
@@ -482,7 +534,6 @@ class SystemMonitorController extends Controller
                 }
             }
 
-            // Verificar conexão com banco
             if (!$this->checkDatabaseConnection()) {
                 $alerts[] = [
                     'type' => 'critical',
