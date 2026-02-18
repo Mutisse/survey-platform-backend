@@ -86,19 +86,31 @@ class ActivityLogController extends Controller
     /**
      * NOVO MÉTODO: Dados para gráficos de análise de logs
      */
+    /**
+     * NOVO MÉTODO: Dados para gráficos de análise de logs
+     */
     public function chartData(Request $request)
     {
         try {
             $period = $request->get('period', '30d'); // 7d, 30d, 90d, 1y
 
-            // Definir intervalo baseado no período
-            $interval = match($period) {
-                '7d' => now()->subDays(7),
-                '30d' => now()->subDays(30),
-                '90d' => now()->subDays(90),
-                '1y' => now()->subYear(),
-                default => now()->subDays(30),
-            };
+            // ✅ CORREÇÃO: Usar switch em vez de match
+            switch ($period) {
+                case '7d':
+                    $interval = now()->subDays(7);
+                    break;
+                case '30d':
+                    $interval = now()->subDays(30);
+                    break;
+                case '90d':
+                    $interval = now()->subDays(90);
+                    break;
+                case '1y':
+                    $interval = now()->subYear();
+                    break;
+                default:
+                    $interval = now()->subDays(30);
+            }
 
             // 1. Gráfico de linhas: Logs por dia
             $logsByDay = DB::table('activity_logs')
@@ -180,12 +192,11 @@ class ActivityLogController extends Controller
                 ],
                 'message' => 'Dados para gráficos recuperados com sucesso'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Erro ao gerar dados para gráficos: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Erro ao gerar dados para gráficos',
+                'message' => 'Erro ao gerar dados para gráficos: ' . $e->getMessage(),
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -240,7 +251,6 @@ class ActivityLogController extends Controller
                 'data' => $stats,
                 'message' => 'Estatísticas detalhadas recuperadas com sucesso'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Erro ao gerar estatísticas detalhadas: ' . $e->getMessage());
             return response()->json([
