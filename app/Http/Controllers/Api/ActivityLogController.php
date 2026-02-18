@@ -84,6 +84,174 @@ class ActivityLogController extends Controller
     }
 
     /**
+     * NOVO MÉTODO: Dados para gráficos de análise de logs
+     */
+    public function chartData(Request $request)
+    {
+        try {
+            $period = $request->get('period', '30d'); // 7d, 30d, 90d, 1y
+
+            // Definir intervalo baseado no período
+            $interval = match($period) {
+                '7d' => now()->subDays(7),
+                '30d' => now()->subDays(30),
+                '90d' => now()->subDays(90),
+                '1y' => now()->subYear(),
+                default => now()->subDays(30),
+            };
+
+            // 1. Gráfico de linhas: Logs por dia
+            $logsByDay = DB::table('activity_logs')
+                ->select(DB::raw('DATE(created_at) as date'), DB::raw('COUNT(*) as total'))
+                ->where('created_at', '>=', $interval)
+                ->groupBy(DB::raw('DATE(created_at)'))
+                ->orderBy('date', 'asc')
+                ->get();
+
+            // 2. Gráfico de pizza: Distribuição por nível
+            $logsByLevel = DB::table('activity_logs')
+                ->select('level_system', DB::raw('COUNT(*) as total'))
+                ->where('created_at', '>=', $interval)
+                ->groupBy('level_system')
+                ->orderBy('total', 'desc')
+                ->get();
+
+            // 3. Gráfico de barras: Top 10 ações
+            $topActions = DB::table('activity_logs')
+                ->select('action', DB::raw('COUNT(*) as total'))
+                ->where('created_at', '>=', $interval)
+                ->groupBy('action')
+                ->orderBy('total', 'desc')
+                ->limit(10)
+                ->get();
+
+            // 4. Gráfico de barras: Logs por hora do dia (últimos 7 dias)
+            $logsByHour = DB::table('activity_logs')
+                ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as total'))
+                ->where('created_at', '>=', now()->subDays(7))
+                ->groupBy(DB::raw('HOUR(created_at)'))
+                ->orderBy('hour', 'asc')
+                ->get();
+
+            // 5. Gráfico de pizza: Dispositivos
+            $logsByDevice = DB::table('activity_logs')
+                ->select('device_type', DB::raw('COUNT(*) as total'))
+                ->where('created_at', '>=', $interval)
+                ->whereNotNull('device_type')
+                ->groupBy('device_type')
+                ->orderBy('total', 'desc')
+                ->get();
+
+            // 6. Gráfico de barras: Top 10 países
+            $topCountries = DB::table('activity_logs')
+                ->select('country', DB::raw('COUNT(*) as total'))
+                ->where('created_at', '>=', $interval)
+                ->whereNotNull('country')
+                ->groupBy('country')
+                ->orderBy('total', 'desc')
+                ->limit(10)
+                ->get();
+
+            // 7. Gráfico de linhas: Erros vs Info ao longo do tempo
+            $errorsVsInfo = DB::table('activity_logs')
+                ->select(
+                    DB::raw('DATE(created_at) as date'),
+                    DB::raw("SUM(CASE WHEN level_system IN ('error', 'critical') THEN 1 ELSE 0 END) as errors"),
+                    DB::raw("SUM(CASE WHEN level_system = 'info' THEN 1 ELSE 0 END) as info"),
+                    DB::raw("SUM(CASE WHEN level_system = 'warning' THEN 1 ELSE 0 END) as warnings")
+                )
+                ->where('created_at', '>=', $interval)
+                ->groupBy(DB::raw('DATE(created_at)'))
+                ->orderBy('date', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'logs_by_day' => $logsByDay,
+                    'logs_by_level' => $logsByLevel,
+                    'top_actions' => $topActions,
+                    'logs_by_hour' => $logsByHour,
+                    'logs_by_device' => $logsByDevice,
+                    'top_countries' => $topCountries,
+                    'errors_vs_info' => $errorsVsInfo,
+                    'period' => $period,
+                    'total_logs' => DB::table('activity_logs')->where('created_at', '>=', $interval)->count(),
+                ],
+                'message' => 'Dados para gráficos recuperados com sucesso'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Erro ao gerar dados para gráficos: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro ao gerar dados para gráficos',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * NOVO MÉTODO: Estatísticas detalhadas por período
+     */
+    public function detailedStats(Request $request)
+    {
+        try {
+            $startDate = $request->get('start_date', now()->subDays(30)->format('Y-m-d'));
+            $endDate = $request->get('end_date', now()->format('Y-m-d'));
+
+            $stats = [
+                'summary' => [
+                    'total' => DB::table('activity_logs')
+                        ->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59'])
+                        ->count(),
+                    'errors' => DB::table('activity_logs')
+                        ->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59'])
+                        ->whereIn('level_system', ['error', 'critical'])
+                        ->count(),
+                    'warnings' => DB::table('activity_logs')
+                        ->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59'])
+                        ->where('level_system', 'warning')
+                        ->count(),
+                    'info' => DB::table('activity_logs')
+                        ->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59'])
+                        ->where('level_system', 'info')
+                        ->count(),
+                ],
+                'by_user' => DB::table('activity_logs')
+                    ->select('user_id', DB::raw('COUNT(*) as total'))
+                    ->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59'])
+                    ->whereNotNull('user_id')
+                    ->groupBy('user_id')
+                    ->orderBy('total', 'desc')
+                    ->limit(10)
+                    ->get(),
+                'peak_hours' => DB::table('activity_logs')
+                    ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as total'))
+                    ->whereBetween('created_at', [$startDate, $endDate . ' 23:59:59'])
+                    ->groupBy(DB::raw('HOUR(created_at)'))
+                    ->orderBy('total', 'desc')
+                    ->limit(5)
+                    ->get(),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $stats,
+                'message' => 'Estatísticas detalhadas recuperadas com sucesso'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Erro ao gerar estatísticas detalhadas: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro ao gerar estatísticas detalhadas',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Display the specified log.
      */
     public function show($id)

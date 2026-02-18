@@ -404,6 +404,9 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('logs')->group(functio
     Route::get('/export', [ActivityLogController::class, 'export']);
     Route::delete('/clean', [ActivityLogController::class, 'clean']);
     Route::get('/{id}', [ActivityLogController::class, 'show']);
+    // Dentro do grupo de logs
+    Route::get('/chart-data', [ActivityLogController::class, 'chartData']);
+    Route::get('/detailed-stats', [ActivityLogController::class, 'detailedStats']);
 });
 
 // ==============================================
@@ -414,6 +417,8 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('monitoramento')->grou
     Route::get('/dashboard_monitoramento', [SystemMonitorController::class, 'dashboard']);
     Route::get('/health', [SystemMonitorController::class, 'healthCheck']);
 });
+
+
 
 // ==============================================
 // ✅ ROTAS DE TESTE E HEALTH CHECK
