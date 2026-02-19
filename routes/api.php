@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\StudentDashboardController;
 use App\Http\Controllers\Api\SurveyResponseController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\NotificationConfigController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\SystemMonitorController;
@@ -425,7 +426,32 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('monitoramento')->grou
     Route::get('/health', [SystemMonitorController::class, 'healthCheck']);
 });
 
+// ==============================================
+// CONFIGURAÇÕES DE NOTIFICAÇÃO (PÚBLICAS PARA LEITURA)
+// ==============================================
+Route::prefix('notification-configs')->group(function () {
+    // Público (qualquer usuário autenticado)
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('/types', [NotificationConfigController::class, 'getTypes']);
+        Route::get('/user-preferences', [NotificationConfigController::class, 'getUserPreferences']);
+        Route::put('/user-preferences', [NotificationConfigController::class, 'updateUserPreferences']);
+        Route::get('/general-settings', [NotificationConfigController::class, 'getGeneralSettings']);
+    });
 
+    // Apenas admin
+    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+        Route::get('/', [NotificationConfigController::class, 'index']);
+        Route::get('/stats', [NotificationConfigController::class, 'getStats']);
+        Route::get('/{id}', [NotificationConfigController::class, 'show']);
+        Route::post('/', [NotificationConfigController::class, 'store']);
+        Route::put('/{id}', [NotificationConfigController::class, 'update']);
+        Route::delete('/{id}', [NotificationConfigController::class, 'destroy']);
+        Route::post('/{id}/duplicate', [NotificationConfigController::class, 'duplicate']);
+        Route::patch('/{id}/toggle', [NotificationConfigController::class, 'toggle']);
+        Route::put('/general-settings', [NotificationConfigController::class, 'updateGeneralSettings']);
+        Route::post('/cleanup', [NotificationConfigController::class, 'cleanup']);
+    });
+});
 // ==============================================
 // ✅ ROTAS DE TESTE E HEALTH CHECK
 // ==============================================
