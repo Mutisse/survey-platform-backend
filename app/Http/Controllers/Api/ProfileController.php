@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Models\NotificationConfig;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
 
 /**
  * ProfileController - Gerencia perfis de todos os níveis de acesso
@@ -37,6 +40,9 @@ class ProfileController extends Controller
                 return response()->json(['success' => false, 'message' => 'Usuário não encontrado'], 404);
             }
 
+            // Verificar se perfil está completo e enviar notificação se necessário
+            $this->checkProfileCompletionAndNotify($user);
+
             $basicInfo = [
                 'id' => $user->id ?? null,
                 'name' => $user->name ?? 'Nome não definido',
@@ -62,6 +68,7 @@ class ProfileController extends Controller
                     'allowed_sections' => $this->getAllowedSections($user),
                     'specific_data' => $this->getSpecificData($user),
                     'stats' => $this->getUserStats($user),
+                    'profile_completion' => $this->calculateProfileCompletion($user),
                 ]
             ]);
         } catch (\Exception $e) {
@@ -100,6 +107,9 @@ class ProfileController extends Controller
 
             DB::table('users')->where('id', $userId)->update($updateData);
             $user = DB::table('users')->where('id', $userId)->first();
+
+            // Verificar se perfil ficou completo após atualização
+            $this->checkProfileCompletionAndNotify($user);
 
             return response()->json([
                 'success' => true,
@@ -538,7 +548,7 @@ class ProfileController extends Controller
 
             DB::beginTransaction();
 
-            DB::table('transactions')->insert([
+            $transactionId = DB::table('transactions')->insertGetId([
                 'user_id' => $userId,
                 'type' => 'withdrawal',
                 'amount' => $request->amount,
@@ -555,6 +565,35 @@ class ProfileController extends Controller
             ]);
 
             DB::commit();
+
+            // ============ NOTIFICAR ADMINS SOBRE SAQUE PENDENTE ============
+            try {
+                $notificationController = new NotificationController();
+                $admins = DB::table('users')->where('role', 'admin')->get();
+
+                foreach ($admins as $admin) {
+                    $notificationController->sendToUser(
+                        $admin->id,
+                        'withdrawal_pending',
+                        [
+                            'participant_name' => $user->name,
+                            'amount' => $request->amount,
+                            'withdrawal_id' => $transactionId
+                        ]
+                    );
+                }
+
+                Log::info('💰 Notificações de saque pendente enviadas para admins', [
+                    'user_id' => $userId,
+                    'amount' => $request->amount,
+                    'transaction_id' => $transactionId
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificações de saque para admins', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $userId
+                ]);
+            }
 
             return response()->json(['success' => true, 'message' => 'Solicitação de saque enviada com sucesso!']);
         } catch (\Exception $e) {
@@ -753,7 +792,7 @@ class ProfileController extends Controller
                 return 0;
             }
 
-            $lastDate = \Carbon\Carbon::parse($lastResponse->completed_at);
+            $lastDate = Carbon::parse($lastResponse->completed_at);
             $today = now();
 
             if ($lastDate->isToday()) {
@@ -1014,6 +1053,88 @@ class ProfileController extends Controller
             'student_verification' => $role === 'student',
             'participant_preferences' => $role === 'participant',
         ];
+    }
+
+    /**
+     * Calcular porcentagem de conclusão do perfil
+     */
+    private function calculateProfileCompletion($user)
+    {
+        $completedFields = 0;
+        $totalFields = 6;
+
+        $fieldsToCheck = [
+            'name' => !empty($user->name),
+            'email' => !empty($user->email),
+            'phone' => !empty($user->phone),
+            'avatar' => !empty($user->avatar),
+            'profile_info' => !empty($user->profile_info),
+            'verification_status' => $user->verification_status === 'approved',
+        ];
+
+        foreach ($fieldsToCheck as $field => $isCompleted) {
+            if ($isCompleted) $completedFields++;
+        }
+
+        return round(($completedFields / $totalFields) * 100);
+    }
+
+    /**
+     * Verificar se perfil está completo e enviar notificação se necessário
+     */
+    private function checkProfileCompletionAndNotify($user)
+    {
+        try {
+            $completion = $this->calculateProfileCompletion($user);
+
+            // Se perfil está abaixo de 50% completo, notificar o usuário
+            if ($completion < 50 && $user->role !== 'admin') {
+                $userId = $user->id;
+
+                // Verificar se já não notificamos recentemente (evitar spam)
+                $lastNotification = DB::table('notifications')
+                    ->where('user_id', $userId)
+                    ->where('type', 'profile_incomplete')
+                    ->where('created_at', '>=', now()->subDays(7))
+                    ->first();
+
+                if (!$lastNotification) {
+                    $notificationController = new NotificationController();
+                    $notificationController->sendToUser(
+                        $userId,
+                        'profile_incomplete',
+                        [
+                            'completion' => $completion,
+                            'missing_fields' => $this->getMissingProfileFields($user)
+                        ]
+                    );
+
+                    Log::info('🔔 Notificação de perfil incompleto enviada', [
+                        'user_id' => $userId,
+                        'completion' => $completion
+                    ]);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Erro ao verificar conclusão do perfil: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Obter campos do perfil que estão faltando
+     */
+    private function getMissingProfileFields($user)
+    {
+        $missing = [];
+
+        if (empty($user->name)) $missing[] = 'name';
+        if (empty($user->email)) $missing[] = 'email';
+        if (empty($user->phone)) $missing[] = 'phone';
+        if (empty($user->avatar)) $missing[] = 'avatar';
+        if (empty($user->profile_info)) $missing[] = 'profile_info';
+        if ($user->verification_status !== 'approved') $missing[] = 'verification';
+
+        return $missing;
     }
 
     // ==============================================

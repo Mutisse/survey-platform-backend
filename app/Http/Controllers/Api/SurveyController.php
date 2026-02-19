@@ -7,12 +7,14 @@ use App\Models\Survey;
 use App\Models\SurveyCategory;
 use App\Models\SurveyInstitution;
 use App\Models\SurveyResponse;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class SurveyController extends Controller
 {
@@ -213,6 +215,8 @@ class SurveyController extends Controller
                 ], 401);
             }
 
+            $user = Auth::user();
+
             // Criar a pesquisa
             $survey = Survey::create([
                 'user_id' => $userId,
@@ -257,6 +261,34 @@ class SurveyController extends Controller
             $this->updateInstitutionCount($request->institution);
 
             DB::commit();
+
+            // ============ NOTIFICAR ADMINS SOBRE NOVA PESQUISA ============
+            try {
+                $notificationController = new NotificationController();
+                $admins = User::where('role', 'admin')->get();
+
+                foreach ($admins as $admin) {
+                    $notificationController->sendToUser(
+                        $admin->id,
+                        'new_survey_from_student',
+                        [
+                            'student_name' => $user->name,
+                            'survey_title' => $survey->title,
+                            'survey_id' => $survey->id
+                        ]
+                    );
+                }
+
+                Log::info('🔔 Notificações enviadas para admins sobre nova pesquisa', [
+                    'survey_id' => $survey->id,
+                    'admins_count' => $admins->count()
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificações para admins', [
+                    'error' => $e->getMessage(),
+                    'survey_id' => $survey->id
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
@@ -669,6 +701,7 @@ class SurveyController extends Controller
         }
 
         $survey = Survey::available()->findOrFail($id);
+        $user = Auth::user();
 
         // Verificar se já existe resposta
         $existingResponse = SurveyResponse::where('survey_id', $id)
@@ -721,6 +754,31 @@ class SurveyController extends Controller
                 'completion_time' => $response->started_at ? now()->diffInSeconds($response->started_at) : null,
             ]);
 
+            // ============ NOTIFICAR ESTUDANTE SOBRE NOVA RESPOSTA ============
+            try {
+                $notificationController = new NotificationController();
+                $notificationController->sendToUser(
+                    $survey->user_id,
+                    'survey_response_received',
+                    [
+                        'participant_name' => $user->name,
+                        'survey_title' => $survey->title,
+                        'survey_id' => $survey->id
+                    ]
+                );
+
+                Log::info('🔔 Notificação de nova resposta enviada para estudante', [
+                    'survey_id' => $survey->id,
+                    'student_id' => $survey->user_id,
+                    'participant_id' => $userId
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificação de resposta', [
+                    'error' => $e->getMessage(),
+                    'survey_id' => $survey->id
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Resposta enviada com sucesso',
@@ -758,6 +816,7 @@ class SurveyController extends Controller
         if (strpos($userAgent, 'Safari') !== false) return 'Safari';
         return 'Unknown';
     }
+
     // Iniciar resposta a uma pesquisa - PROTEGIDO (versão simplificada)
     public function startResponse(Request $request, $id)
     {
@@ -827,6 +886,7 @@ class SurveyController extends Controller
             ], 500);
         }
     }
+
     // Minhas pesquisas - PROTEGIDO
     public function mySurveys(Request $request)
     {
@@ -934,7 +994,73 @@ class SurveyController extends Controller
         }
 
         $survey = Survey::findOrFail($id);
+        $oldStatus = $survey->status;
+
         $survey->update(['status' => $request->status]);
+
+        // ============ NOTIFICAÇÕES QUANDO STATUS MUDA ============
+        try {
+            $notificationController = new NotificationController();
+
+            if ($request->status === 'approved' && $oldStatus !== 'approved') {
+                // Notificar estudante que pesquisa foi aprovada
+                $notificationController->sendToUser(
+                    $survey->user_id,
+                    'survey_approved_for_payment',
+                    [
+                        'survey_title' => $survey->title,
+                        'survey_id' => $survey->id
+                    ]
+                );
+
+                Log::info('💰 Notificação de pesquisa aprovada enviada', [
+                    'survey_id' => $survey->id,
+                    'student_id' => $survey->user_id
+                ]);
+            } elseif ($request->status === 'rejected' && $oldStatus !== 'rejected') {
+                // Notificar estudante que pesquisa foi rejeitada
+                $notificationController->sendToUser(
+                    $survey->user_id,
+                    'survey_rejected',
+                    [
+                        'survey_title' => $survey->title,
+                        'survey_id' => $survey->id
+                    ]
+                );
+
+                Log::info('❌ Notificação de pesquisa rejeitada enviada', [
+                    'survey_id' => $survey->id,
+                    'student_id' => $survey->user_id
+                ]);
+            } elseif ($request->status === 'active' && $oldStatus !== 'active') {
+                // Notificar todos os participantes sobre nova pesquisa
+                $participants = User::where('role', 'participant')
+                    ->where('verification_status', 'approved')
+                    ->get();
+
+                foreach ($participants as $participant) {
+                    $notificationController->sendToUser(
+                        $participant->id,
+                        'new_survey_available',
+                        [
+                            'student_name' => $survey->user->name,
+                            'survey_title' => $survey->title,
+                            'survey_id' => $survey->id
+                        ]
+                    );
+                }
+
+                Log::info('📊 Notificações de nova pesquisa enviadas para participantes', [
+                    'survey_id' => $survey->id,
+                    'participants_count' => $participants->count()
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::warning('⚠️ Erro ao enviar notificações de pesquisa', [
+                'error' => $e->getMessage(),
+                'survey_id' => $survey->id
+            ]);
+        }
 
         return response()->json([
             'success' => true,

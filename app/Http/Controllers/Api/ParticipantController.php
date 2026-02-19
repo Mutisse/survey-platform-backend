@@ -9,6 +9,7 @@ use App\Models\Survey;
 use App\Models\SurveyResponse;
 use App\Models\Transaction;
 use App\Models\Notification;
+use App\Models\NotificationConfig; // Adicionado
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -160,6 +161,34 @@ class ParticipantController extends Controller
             $user->save();
 
             $token = $user->createToken('auth_token')->plainTextToken;
+
+            // ============ NOTIFICAR ADMINS SOBRE NOVO REGISTO ============
+            try {
+                $notificationController = new NotificationController();
+                $admins = User::where('role', 'admin')->get();
+
+                foreach ($admins as $admin) {
+                    $notificationController->sendToUser(
+                        $admin->id,
+                        'new_user_pending_approval',
+                        [
+                            'user_name' => $user->name,
+                            'user_role' => 'participant',
+                            'user_id' => $user->id
+                        ]
+                    );
+                }
+
+                Log::info('🔔 Notificações enviadas para admins sobre novo participante', [
+                    'user_id' => $user->id,
+                    'admins_count' => $admins->count()
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificações para admins', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $user->id
+                ]);
+            }
 
             DB::commit();
 
@@ -333,7 +362,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * Obter pesquisas disponíveis para o participante - VERSÃO COM active APENAS
+     * Obter pesquisas disponíveis para o participante
      */
     public function getAvailableSurveys(Request $request)
     {
@@ -352,10 +381,9 @@ class ParticipantController extends Controller
                 ->pluck('survey_id')
                 ->toArray();
 
-            // 2. Buscar pesquisas ativas - CORREÇÃO AQUI!
+            // 2. Buscar pesquisas ativas
             $surveys = Survey::where('status', 'active')
-                ->whereNotIn('id', $answeredIds)  // Apenas não respondidas
-                // ->where('user_id', '!=', $user->id)  // ❌❌❌ REMOVA ESTA LINHA COMPLETAMENTE!
+                ->whereNotIn('id', $answeredIds)
                 ->select(
                     'id',
                     'title',
@@ -412,8 +440,9 @@ class ParticipantController extends Controller
             ]);
         }
     }
+
     /**
-     * Responder a uma pesquisa - VERSÃO COM active APENAS
+     * Responder a uma pesquisa
      */
     public function respondToSurvey(Request $request, $id)
     {
@@ -427,9 +456,9 @@ class ParticipantController extends Controller
                 ], 403);
             }
 
-            // ✅ APENAS pesquisas com status 'active'
+            // Apenas pesquisas com status 'active'
             $survey = Survey::where('id', $id)
-                ->where('status', 'active')  // ✅ APENAS 'active'
+                ->where('status', 'active')
                 ->first();
 
             if (!$survey) {
@@ -587,10 +616,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * Obter dados completos do dashboard do participante - VERSÃO SIMPLIFICADA
-     */
-    /**
-     * Obter dados completos do dashboard do participante - VERSÃO COM RANKING
+     * Obter dados completos do dashboard do participante
      */
     public function getDashboardData(Request $request)
     {
@@ -613,7 +639,7 @@ class ParticipantController extends Controller
             // Obter transações recentes
             $recentTransactions = $this->getRecentTransactions($user);
 
-            // 🔥 NOVO: Obter ranking do participante
+            // Obter ranking do participante
             $rankingData = $this->getUserRankingInfo($user);
 
             return response()->json([
@@ -625,7 +651,6 @@ class ParticipantController extends Controller
                     'recent_transactions' => $recentTransactions,
                     'notifications' => [], // Temporariamente vazio
                     'last_updated' => now()->toDateTimeString(),
-                    // 🔥 ADICIONAR DADOS DO RANKING
                     'ranking_info' => $rankingData,
                 ]
             ]);
@@ -643,7 +668,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * 🔥 NOVO MÉTODO: Obter informações de ranking do usuário
+     * Obter informações de ranking do usuário
      */
     private function getUserRankingInfo($user)
     {
@@ -678,7 +703,7 @@ class ParticipantController extends Controller
             $distanceToNext = 0;
             if ($position > 1 && $position <= $totalParticipants) {
                 $userBalance = (float) $user->balance;
-                $participantAbove = $allParticipants[$position - 2]; // -2 porque array começa em 0
+                $participantAbove = $allParticipants[$position - 2];
                 $distanceToNext = max(0, ((float) $participantAbove->balance) - $userBalance + 0.01);
             }
 
@@ -686,7 +711,7 @@ class ParticipantController extends Controller
             $distanceFromPrevious = 0;
             if ($position < $totalParticipants && $position > 0) {
                 $userBalance = (float) $user->balance;
-                $participantBelow = $allParticipants[$position]; // Posição atual no array
+                $participantBelow = $allParticipants[$position];
                 $distanceFromPrevious = max(0, $userBalance - ((float) $participantBelow->balance));
             }
 
@@ -723,7 +748,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * 🔥 FUNÇÃO AUXILIAR: Obter badge para posição
+     * Obter badge para posição
      */
     private function getBadgeForPosition($position)
     {
@@ -735,7 +760,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * 🔥 FUNÇÃO AUXILIAR: Obter tier para posição
+     * Obter tier para posição
      */
     private function getTierForPosition($position)
     {
@@ -778,7 +803,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * Obter pesquisas disponíveis para dashboard (método privado) - VERSÃO COM active APENAS
+     * Obter pesquisas disponíveis para dashboard
      */
     private function getAvailableSurveysForDashboard($user)
     {
@@ -787,15 +812,11 @@ class ParticipantController extends Controller
                 ->pluck('survey_id')
                 ->toArray();
 
-            $surveys = Survey::available()
+            $surveys = Survey::where('status', 'active')
                 ->whereNotIn('id', $answeredSurveyIds)
-                ->where('user_id', '!=', $user->id)
-
-                // ✅ CORREÇÃO: Remover 'university as institution'
                 ->with(['user' => function ($query) {
                     $query->select('id', 'name');
                 }])
-
                 ->select([
                     'id',
                     'title',
@@ -806,7 +827,7 @@ class ParticipantController extends Controller
                     'target_responses',
                     'current_responses',
                     'user_id',
-                    'institution',  // ✅ Usar esta coluna
+                    'institution',
                     'created_at',
                 ])
                 ->limit(10)
@@ -824,7 +845,7 @@ class ParticipantController extends Controller
                         'researcher' => [
                             'id' => (string) $survey->user->id,
                             'name' => $survey->user->name,
-                            'institution' => $survey->institution,  // ✅ Da pesquisa
+                            'institution' => $survey->institution,
                         ],
                         'created_at' => $survey->created_at->toDateTimeString(),
                         'questions_count' => $survey->questions()->count(),
@@ -839,7 +860,7 @@ class ParticipantController extends Controller
     }
 
     /**
-     * Obter transações recentes do participante (método privado)
+     * Obter transações recentes do participante
      */
     private function getRecentTransactions($user)
     {
@@ -913,6 +934,35 @@ class ParticipantController extends Controller
 
             $user->balance -= $request->amount;
             $user->save();
+
+            // ============ NOTIFICAR ADMINS SOBRE SAQUE PENDENTE ============
+            try {
+                $notificationController = new NotificationController();
+                $admins = User::where('role', 'admin')->get();
+
+                foreach ($admins as $admin) {
+                    $notificationController->sendToUser(
+                        $admin->id,
+                        'withdrawal_pending',
+                        [
+                            'participant_name' => $user->name,
+                            'amount' => $request->amount,
+                            'withdrawal_id' => $transaction->id
+                        ]
+                    );
+                }
+
+                Log::info('💰 Notificações de saque pendente enviadas para admins', [
+                    'user_id' => $user->id,
+                    'amount' => $request->amount,
+                    'transaction_id' => $transaction->id
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificações de saque para admins', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $user->id
+                ]);
+            }
 
             Log::info('💰 Solicitação de saque criada', [
                 'user_id' => $user->id,
@@ -1015,22 +1065,16 @@ class ParticipantController extends Controller
     }
 
     /**
-     * Obter ranking detalhado
-     */
-    /**
-     * Obter ranking dos participantes - VERSÃO ATUALIZADA COM MAIS INFORMAÇÕES
+     * Obter ranking dos participantes
      */
     public function getRankings(Request $request)
     {
         try {
             $user = $request->user();
 
-            // VERSÃO DEFINITIVA - Combina transações + balance
             $rankings = User::where('role', 'participant')
                 ->where('verification_status', 'approved')
                 ->select('users.*')
-
-                // Subquery para calcular ganhos de transações
                 ->selectSub(function ($query) {
                     $query->from('transactions')
                         ->selectRaw('COALESCE(SUM(amount), 0)')
@@ -1038,38 +1082,27 @@ class ParticipantController extends Controller
                         ->where('type', 'survey_earnings')
                         ->whereIn('status', ['completed', 'approved', 'pending']);
                 }, 'earnings_from_transactions')
-
-                // Subquery para contar pesquisas completadas
                 ->selectSub(function ($query) {
                     $query->from('survey_responses')
                         ->selectRaw('COUNT(*)')
                         ->whereColumn('user_id', 'users.id')
                         ->where('status', 'completed');
                 }, 'completed_surveys')
-
-                // Subquery para obter data da última pesquisa
                 ->selectSub(function ($query) {
                     $query->from('survey_responses')
                         ->selectRaw('MAX(created_at)')
                         ->whereColumn('user_id', 'users.id')
                         ->where('status', 'completed');
                 }, 'last_survey_date')
-
-                // Ordenar: Usar o MAIOR entre (transações + balance) e (apenas balance)
                 ->orderByRaw('GREATEST(earnings_from_transactions, users.balance) DESC')
                 ->orderByDesc('completed_surveys')
                 ->orderBy('users.name')
-
                 ->get()
                 ->map(function ($user, $index) {
-                    // Calcular total_earned: máximo entre transações e balance
                     $earningsFromTransactions = (float) $user->earnings_from_transactions;
                     $currentBalance = (float) $user->balance;
-
-                    // Usar o maior valor disponível
                     $totalEarned = max($earningsFromTransactions, $currentBalance);
 
-                    // Calcular rating real
                     $averageRating = 0;
                     try {
                         $responses = \App\Models\SurveyResponse::where('user_id', $user->id)
@@ -1083,7 +1116,6 @@ class ParticipantController extends Controller
                         $averageRating = 0;
                     }
 
-                    // Obter data da última pesquisa
                     $lastSurveyDate = null;
                     if ($user->last_survey_date) {
                         try {
@@ -1094,7 +1126,6 @@ class ParticipantController extends Controller
                         }
                     }
 
-                    // Determinar badge baseado na posição
                     $position = $index + 1;
                     $badge = match (true) {
                         $position === 1 => '🥇',
@@ -1104,7 +1135,6 @@ class ParticipantController extends Controller
                         default => '📊'
                     };
 
-                    // Determinar tier/nível
                     $tier = match (true) {
                         $position <= 3 => 'gold',
                         $position <= 10 => 'silver',
@@ -1112,7 +1142,6 @@ class ParticipantController extends Controller
                         default => 'participant'
                     };
 
-                    // Determinar status de atividade
                     $activityStatus = 'active';
                     if ($lastSurveyDate) {
                         $lastSurvey = \Carbon\Carbon::parse($lastSurveyDate);
@@ -1180,7 +1209,6 @@ class ParticipantController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
-
             return response()->json([
                 'success' => false,
                 'message' => 'Erro ao carregar ranking',
@@ -1195,7 +1223,7 @@ class ParticipantController extends Controller
     private function calculateProfileCompletion($user)
     {
         $completedFields = 0;
-        $totalFields = 8; // Campos importantes
+        $totalFields = 8;
 
         $fieldsToCheck = [
             'name' => !empty($user->name),
@@ -1203,12 +1231,11 @@ class ParticipantController extends Controller
             'phone' => !empty($user->phone),
             'profile_info' => !empty($user->profile_info),
             'avatar' => !empty($user->avatar),
-            'bi_number' => false, // Verificar em participant_stats
-            'mpesa_number' => false, // Verificar em participant_stats
-            'occupation' => false, // Verificar em participant_stats
+            'bi_number' => false,
+            'mpesa_number' => false,
+            'occupation' => false,
         ];
 
-        // Verificar campos em participant_stats se existir
         if ($user->participantStats) {
             $fieldsToCheck['bi_number'] = !empty($user->participantStats->bi_number);
             $fieldsToCheck['mpesa_number'] = !empty($user->participantStats->mpesa_number);
@@ -1230,11 +1257,9 @@ class ParticipantController extends Controller
         try {
             $user = $request->user();
 
-            // Buscar métodos de pagamento salvos
             $profileInfo = json_decode($user->profile_info ?? '{}', true);
             $paymentMethods = $profileInfo['payment_methods'] ?? [];
 
-            // Se não tiver nenhum, retornar métodos padrão
             if (empty($paymentMethods)) {
                 $paymentMethods = [
                     [
@@ -1290,7 +1315,6 @@ class ParticipantController extends Controller
     public function getWithdrawalSettings(Request $request)
     {
         try {
-            // Configurações padrão
             $settings = [
                 'min_amount' => 100,
                 'max_amount' => null,
@@ -1304,7 +1328,6 @@ class ParticipantController extends Controller
                 'working_days' => ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
             ];
 
-            // Buscar configurações do sistema (se existir tabela)
             if (DB::getSchemaBuilder()->hasTable('system_settings')) {
                 $dbSettings = DB::table('system_settings')
                     ->whereIn('key', ['min_withdrawal', 'max_withdrawal', 'processing_days'])
@@ -1339,6 +1362,4 @@ class ParticipantController extends Controller
             ]);
         }
     }
-
-    
 }

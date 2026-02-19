@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\StudentStats;
+use App\Models\NotificationConfig; // Adicionado
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -182,6 +183,35 @@ class StudentController extends Controller
             // ============ 6. CRIAR TOKEN ============
             $token = $user->createToken('auth_token')->plainTextToken;
 
+            // ============ 7. NOTIFICAR ADMINS SOBRE NOVO REGISTO ============
+            try {
+                $notificationController = new NotificationController();
+                $admins = User::where('role', 'admin')->get();
+
+                foreach ($admins as $admin) {
+                    $notificationController->sendToUser(
+                        $admin->id,
+                        'new_user_pending_approval',
+                        [
+                            'user_name' => $user->name,
+                            'user_role' => 'student',
+                            'user_id' => $user->id
+                        ]
+                    );
+                }
+
+                Log::info('🔔 Notificações enviadas para admins sobre novo estudante', [
+                    'user_id' => $user->id,
+                    'admins_count' => $admins->count()
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificações para admins', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $user->id
+                ]);
+                // Não interrompe o fluxo principal
+            }
+
             DB::commit();
 
             Log::info('🎉 Cadastro concluído com sucesso para usuário ID: ' . $user->id);
@@ -197,7 +227,6 @@ class StudentController extends Controller
                     'token' => $token
                 ]
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -288,7 +317,7 @@ class StudentController extends Controller
 
         // Atualizar campos básicos do usuário
         $userData = $request->only(['name', 'phone', 'email_notifications', 'whatsapp_notifications']);
-        $userData = array_filter($userData, function($value) {
+        $userData = array_filter($userData, function ($value) {
             return !is_null($value);
         });
 
@@ -299,12 +328,15 @@ class StudentController extends Controller
         // Atualizar student_stats
         if ($user->studentStats) {
             $studentStatsData = $request->only([
-                'university', 'course', 'institution_type',
-                'academic_level', 'student_card_number'
+                'university',
+                'course',
+                'institution_type',
+                'academic_level',
+                'student_card_number'
             ]);
 
             // Remover null values
-            $studentStatsData = array_filter($studentStatsData, function($value) {
+            $studentStatsData = array_filter($studentStatsData, function ($value) {
                 return !is_null($value);
             });
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Notification;
 use App\Models\User;
+use App\Models\NotificationConfig; // <-- IMPORT ADICIONADO
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -54,7 +55,7 @@ class NotificationController extends Controller
 
             // Query base - sempre filtrar pelo usuário logado
             $query = Notification::forUser($user->id)
-                ->notExpired(); // Por padrão, não mostrar expiradas
+                ->notExpired();
 
             // Aplicar filtros
             if ($request->filled('type') && $request->type !== 'all') {
@@ -140,41 +141,27 @@ class NotificationController extends Controller
     }
 
     /**
-     * Listar tipos de notificações disponíveis
-     */
-    // NotificationController.php - Método types()
-
-    /**
-     * Obter tipos de notificações disponíveis
-     */
-   // NotificationController.php - Método types() CORRIGIDO
-
-    /**
      * Obter tipos de notificações disponíveis
      */
     public function types(): JsonResponse
     {
         try {
-            // Método 1: Consultar diretamente do banco usando Schema
+            // Consultar diretamente do banco usando Schema
             $columnType = DB::select("
-            SELECT COLUMN_TYPE
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-            AND TABLE_NAME = 'notifications'
-            AND COLUMN_NAME = 'type'
-        ");
+                SELECT COLUMN_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'notifications'
+                AND COLUMN_NAME = 'type'
+            ");
 
             if (empty($columnType)) {
-                // Método alternativo: usar array fixo com os tipos conhecidos
+                // Fallback: usar array fixo com os tipos conhecidos
                 $enumValues = $this->getKnownNotificationTypes();
             } else {
                 // Extrair valores do ENUM
                 $typeDefinition = $columnType[0]->COLUMN_TYPE;
-
-                // Remover 'enum(' no início e ')' no final
                 $typeDefinition = trim($typeDefinition, "enum()");
-
-                // Dividir pelos separadores
                 $enumValues = array_map(function ($value) {
                     return trim($value, "'");
                 }, explode(',', $typeDefinition));
@@ -208,10 +195,14 @@ class NotificationController extends Controller
 
     /**
      * Obter tipos conhecidos de notificações (fallback)
+     * VERSÃO COMPLETA COM TODAS AS NOTIFICAÇÕES
      */
     private function getKnownNotificationTypes(): array
     {
         return [
+            // =============================================
+            // NOTIFICAÇÕES EXISTENTES (ORIGINAIS)
+            // =============================================
             'survey_response',
             'survey_approved',
             'survey_rejected',
@@ -250,17 +241,59 @@ class NotificationController extends Controller
             'holiday_schedule',
             'app_update',
             'general_announcement',
-            'important_reminder'
+            'important_reminder',
+
+            // =============================================
+            // NOTIFICAÇÕES NOVAS - FLUXO DE USUÁRIO
+            // =============================================
+            'new_user_pending_approval',     // Admin: Novo usuário aguarda aprovação
+            'user_approved',                  // Usuário: Cadastro aprovado
+
+            // =============================================
+            // NOTIFICAÇÕES NOVAS - FLUXO DE PESQUISA (ESTUDANTE)
+            // =============================================
+            'new_survey_from_student',        // Admin: Estudante criou nova pesquisa
+            'survey_approved_for_payment',     // Estudante: Pesquisa aprovada (link pagamento)
+            'payment_confirmed',               // Estudante: Pagamento confirmado
+            'survey_response_received',        // Estudante: Participante respondeu
+            'survey_goal_reached',             // Estudante: Atingiu meta de respostas
+            'survey_closed',                    // Estudante: Pesquisa encerrada
+            'survey_results_available',         // Estudante: Resultados disponíveis
+
+            // =============================================
+            // NOTIFICAÇÕES NOVAS - FLUXO DE PARTICIPAÇÃO (PARTICIPANTE)
+            // =============================================
+            'reward_received',                  // Participante: Ganhou recompensa
+            'withdrawal_requested',              // Participante: Solicitou saque
+            'withdrawal_completed',              // Participante: Saque processado
+            'profile_incomplete',                 // Participante: Lembrete completar perfil
+            'survey_reminder',                    // Participante: Lembrete de pesquisa
+
+            // =============================================
+            // NOTIFICAÇÕES NOVAS - FLUXO ADMINISTRATIVO
+            // =============================================
+            'withdrawal_pending',                // Admin: Saque aguardando aprovação
+            'report_submitted',                   // Admin: Denúncia recebida
+            'low_participants_alert',             // Admin: Poucos participantes ativos
+
+            // =============================================
+            // NOTIFICAÇÕES NOVAS - SISTEMA GERAL
+            // =============================================
+            'system_maintenance_scheduled',       // Todos: Manutenção programada
+            'new_feature_available',               // Todos: Nova funcionalidade
+            'terms_updated'                         // Todos: Termos atualizados
         ];
     }
 
     /**
-     * Obter tipos categorizados
+     * Obter tipos categorizados por perfil de usuário
+     * VERSÃO COMPLETA COM TODAS AS NOTIFICAÇÕES
      */
     private function getCategorizedTypes(): array
     {
         return [
             'student' => [
+                // Originais
                 'survey_response',
                 'survey_approved',
                 'survey_rejected',
@@ -272,9 +305,23 @@ class NotificationController extends Controller
                 'withdrawal_rejected',
                 'low_balance',
                 'research_reminder',
-                'deadline_alert'
+                'deadline_alert',
+
+                // Novas
+                'user_approved',
+                'survey_approved_for_payment',
+                'payment_confirmed',
+                'survey_response_received',
+                'survey_goal_reached',
+                'survey_closed',
+                'survey_results_available',
+                'system_maintenance_scheduled',
+                'new_feature_available',
+                'terms_updated'
             ],
+
             'participant' => [
+                // Originais
                 'survey_available',
                 'survey_invitation',
                 'response_completed',
@@ -284,9 +331,22 @@ class NotificationController extends Controller
                 'bonus_received',
                 'rank_improved',
                 'weekly_summary',
-                'referral_bonus'
+                'referral_bonus',
+
+                // Novas
+                'user_approved',
+                'reward_received',
+                'withdrawal_requested',
+                'withdrawal_completed',
+                'profile_incomplete',
+                'survey_reminder',
+                'system_maintenance_scheduled',
+                'new_feature_available',
+                'terms_updated'
             ],
+
             'admin' => [
+                // Originais
                 'new_user_registered',
                 'survey_pending_review',
                 'withdrawal_requested',
@@ -295,8 +355,20 @@ class NotificationController extends Controller
                 'batch_payment_processed',
                 'low_system_funds',
                 'abuse_reported',
-                'high_activity'
+                'high_activity',
+
+                // Novas
+                'new_user_pending_approval',
+                'new_survey_from_student',
+                'payment_confirmed',
+                'withdrawal_pending',
+                'report_submitted',
+                'low_participants_alert',
+                'system_maintenance_scheduled',
+                'new_feature_available',
+                'terms_updated'
             ],
+
             'system' => [
                 'system_maintenance',
                 'new_feature',
@@ -309,9 +381,7 @@ class NotificationController extends Controller
             ]
         ];
     }
-    /**
-     * Criar nova notificação (para uso interno do sistema)
-     */
+
     /**
      * Criar nova notificação (para uso interno do sistema)
      */
@@ -904,6 +974,7 @@ class NotificationController extends Controller
 
     /**
      * Criar notificação verificando configurações do usuário
+     * VERSÃO ATUALIZADA COM SUPORTE A notification_configs
      */
     private function createNotificationForUser($userId, $data): ?Notification
     {
@@ -912,6 +983,53 @@ class NotificationController extends Controller
         if (!$user) {
             return null;
         }
+
+        // =============================================
+        // BUSCAR CONFIGURAÇÃO DO TIPO (CORRIGIDO)
+        // =============================================
+        $config = null;
+        if (isset($data['type'])) {
+            $config = NotificationConfig::where('type', $data['type']) // <-- SEM O \
+                ->where('is_active', true)
+                ->first();
+        }
+
+        // Se existir configuração, usa os valores padrão
+        if ($config) {
+            // Se tiver dados para formatar, aplica as variáveis
+            if (!empty($data['data'])) {
+                $data['title'] = $config->formatTitle($data['data']);
+                $data['message'] = $config->formatMessage($data['data']);
+                $data['action_url'] = $config->formatUrl($data['data']);
+                $data['icon'] = $config->icon;
+                $data['action_label'] = $config->action_label;
+                $data['priority'] = $config->priority;
+            } else {
+                // Usa os valores padrão sem formatação
+                $data['title'] = $data['title'] ?? $config->title;
+                $data['message'] = $data['message'] ?? $config->message;
+                $data['icon'] = $data['icon'] ?? $config->icon;
+                $data['action_label'] = $data['action_label'] ?? $config->action_label;
+                $data['action_url'] = $data['action_url'] ?? $config->action_url;
+                $data['priority'] = $data['priority'] ?? $config->priority;
+            }
+
+            // Verificar se o usuário pode receber este tipo
+            $allowedRoles = $config->allowed_roles ?? [];
+            if (!empty($allowedRoles) && !in_array($user->role, $allowedRoles)) {
+                Log::info('Usuário não tem permissão para este tipo: ' . $user->role);
+                return null;
+            }
+
+            // Definir data de expiração se configurada
+            if ($config->expires_in_days && !isset($data['expires_in_days'])) {
+                $data['expires_in_days'] = $config->expires_in_days;
+            }
+        }
+
+        // =============================================
+        // CONTINUA IGUAL (validações existentes)
+        // =============================================
 
         // Verificar se notificação está silenciada
         if ($this->isNotificationMuted($user, $data['type'] ?? 'general_announcement')) {
@@ -954,7 +1072,9 @@ class NotificationController extends Controller
             }
         }
 
-        // Criar a notificação
+        // =============================================
+        // CRIAR A NOTIFICAÇÃO (igual)
+        // =============================================
         return Notification::create([
             'user_id' => $userId,
             'type' => $data['type'] ?? 'general_announcement',
@@ -965,7 +1085,7 @@ class NotificationController extends Controller
             'action_label' => $data['action_label'] ?? null,
             'data' => $data['data'] ?? null,
             'priority' => $data['priority'] ?? 1,
-            'expires_at' => $data['expires_in_days'] ? now()->addDays($data['expires_in_days']) : null
+            'expires_at' => isset($data['expires_in_days']) ? now()->addDays($data['expires_in_days']) : null
         ]);
     }
 
@@ -1001,5 +1121,40 @@ class NotificationController extends Controller
         }
 
         return false;
+    }
+
+    /**
+     * Enviar notificação para um usuário (método público para usar em outros controllers)
+     */
+    public function sendToUser($userId, $type, $data = [])
+    {
+        return $this->createNotificationForUser($userId, [
+            'type' => $type,
+            'data' => $data
+        ]);
+    }
+
+    /**
+     * Enviar notificação para múltiplos usuários
+     */
+    public function sendToMany($userIds, $type, $data = [])
+    {
+        $results = [];
+        foreach ($userIds as $userId) {
+            $results[] = $this->sendToUser($userId, $type, $data);
+        }
+        return $results;
+    }
+
+    /**
+     * Enviar notificação para todos de uma role
+     */
+    public function sendToRole($role, $type, $data = [])
+    {
+        $users = User::where('role', $role)
+            ->where('status', 'active')
+            ->get();
+
+        return $this->sendToMany($users->pluck('id')->toArray(), $type, $data);
     }
 }

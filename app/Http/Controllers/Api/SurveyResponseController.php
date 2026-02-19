@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\SurveyResponse;
 use App\Models\Survey;
 use App\Models\User;
+use App\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -313,6 +314,7 @@ class SurveyResponseController extends Controller
                 ], 401);
             }
 
+            $user = Auth::user();
             $validator = Validator::make($request->all(), [
                 'answers' => 'required|array',
                 'completion_time' => 'required|integer|min:1',
@@ -339,7 +341,7 @@ class SurveyResponseController extends Controller
                 ], 404);
             }
 
-            $survey = Survey::findOrFail($response->survey_id);
+            $survey = Survey::with('user')->findOrFail($response->survey_id);
 
             if (!$survey->isAvailable()) {
                 DB::rollBack();
@@ -362,7 +364,62 @@ class SurveyResponseController extends Controller
                 $survey->update(['status' => 'completed']);
             }
 
-            $this->processReward($userId, $survey->reward, $response->id);
+            // Processar recompensa e criar transação
+            $transaction = $this->processReward($userId, $survey->reward, $response->id, $survey->id);
+
+            // ============ NOTIFICAR ESTUDANTE SOBRE NOVA RESPOSTA ============
+            try {
+                $notificationController = new NotificationController();
+
+                // Notificar o ESTUDANTE (dono da pesquisa)
+                $notificationController->sendToUser(
+                    $survey->user_id,
+                    'survey_response_received',
+                    [
+                        'participant_name' => $user->name,
+                        'survey_title' => $survey->title,
+                        'survey_id' => $survey->id
+                    ]
+                );
+
+                Log::info('🔔 Notificação de nova resposta enviada para estudante', [
+                    'survey_id' => $survey->id,
+                    'student_id' => $survey->user_id,
+                    'participant_id' => $userId
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificação de resposta para estudante', [
+                    'error' => $e->getMessage(),
+                    'survey_id' => $survey->id
+                ]);
+            }
+
+            // ============ NOTIFICAR PARTICIPANTE SOBRE RECOMPENSA ============
+            try {
+                $notificationController = new NotificationController();
+
+                // Notificar o PARTICIPANTE que ganhou a recompensa
+                $notificationController->sendToUser(
+                    $userId,
+                    'reward_received',
+                    [
+                        'amount' => $survey->reward,
+                        'survey_title' => $survey->title,
+                        'survey_id' => $survey->id
+                    ]
+                );
+
+                Log::info('💰 Notificação de recompensa enviada para participante', [
+                    'user_id' => $userId,
+                    'amount' => $survey->reward,
+                    'survey_id' => $survey->id
+                ]);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificação de recompensa para participante', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $userId
+                ]);
+            }
 
             DB::commit();
 
@@ -371,7 +428,8 @@ class SurveyResponseController extends Controller
                 'message' => 'Resposta completada com sucesso',
                 'data' => [
                     'response' => $response,
-                    'reward_earned' => $survey->reward
+                    'reward_earned' => $survey->reward,
+                    'transaction' => $transaction
                 ]
             ]);
         } catch (\Exception $e) {
@@ -379,7 +437,8 @@ class SurveyResponseController extends Controller
             Log::error('❌ Erro ao completar resposta:', [
                 'error' => $e->getMessage(),
                 'response_id' => $id,
-                'user_id' => Auth::id()
+                'user_id' => Auth::id(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
@@ -437,9 +496,9 @@ class SurveyResponseController extends Controller
     }
 
     /**
-     * ✅ Processar recompensa
+     * ✅ Processar recompensa e criar transação
      */
-    private function processReward($userId, $amount, $responseId)
+    private function processReward($userId, $amount, $responseId, $surveyId)
     {
         try {
             $response = SurveyResponse::find($responseId);
@@ -456,13 +515,29 @@ class SurveyResponseController extends Controller
                 $user->increment('balance', $amount);
             }
 
+            // Criar transação
+            $transaction = Transaction::create([
+                'user_id' => $userId,
+                'survey_id' => $surveyId,
+                'response_id' => $responseId,
+                'type' => 'earning',
+                'amount' => $amount,
+                'status' => 'completed',
+                'description' => 'Recompensa por responder pesquisa',
+                'metadata' => json_encode([
+                    'response_id' => $responseId,
+                    'completed_at' => now()->toDateTimeString()
+                ])
+            ]);
+
             Log::info('💰 Recompensa processada', [
                 'user_id' => $userId,
                 'amount' => $amount,
-                'response_id' => $responseId
+                'response_id' => $responseId,
+                'transaction_id' => $transaction->id
             ]);
 
-            return true;
+            return $transaction;
         } catch (\Exception $e) {
             Log::error('❌ Erro ao processar recompensa:', [
                 'error' => $e->getMessage(),
@@ -470,9 +545,10 @@ class SurveyResponseController extends Controller
                 'amount' => $amount,
                 'response_id' => $responseId
             ]);
-            return false;
+            return null;
         }
     }
+
     /**
      * ✅ ADICIONAR ESTE MÉTODO
      * Listar todas as respostas (com filtros)
@@ -564,6 +640,7 @@ class SurveyResponseController extends Controller
             ], 500);
         }
     }
+
     /**
      * ✅ Obter informações do dispositivo
      */

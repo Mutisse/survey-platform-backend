@@ -7,10 +7,11 @@ use App\Models\User;
 use App\Models\Survey;
 use App\Models\Transaction;
 use App\Models\ActivityLog;
+use App\Models\NotificationConfig; // Adicionado
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log; // ← ADICIONE ESTA LINHA
+use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
@@ -20,7 +21,7 @@ class AdminController extends Controller
     public function getDashboardData(Request $request)
     {
         try {
-            // Estatísticas gerais - CORRIGIDO: usar verification_status em vez de status
+            // Estatísticas gerais
             $totalUsers = User::count();
             $activeUsers = User::where('verification_status', 'approved')->count();
             $pendingUsers = User::where('verification_status', 'pending')->count();
@@ -147,29 +148,18 @@ class AdminController extends Controller
     }
 
     /**
-     * Listar usuários - CORRIGIDO: remover relações que não existem
+     * Listar usuários
      */
-    /**
-     * Listar usuários - VERSÃO CORRIGIDA
-     */
-    // ✅ VERSÃO CORRIGIDA - SUBSTITUA O MÉTODO COMPLETO
     public function getUsers(Request $request)
     {
         try {
             $query = User::query();
 
-            // ============================================
-            // 🔧 FILTROS CORRIGIDOS
-            // ============================================
-
-            // 1. Filtro por role - SÓ SE NÃO FOR VAZIO
             if ($request->has('role') && !empty($request->role)) {
                 $query->where('role', $request->role);
             }
 
-            // 2. Filtro por status (frontend) - 🔥 CORREÇÃO CRÍTICA
             if ($request->has('status') && !empty($request->status)) {
-                // Mapear status do frontend para verification_status do backend
                 $statusMapping = [
                     'active' => 'approved',
                     'pending' => 'pending',
@@ -177,19 +167,16 @@ class AdminController extends Controller
                     'inactive' => 'rejected'
                 ];
 
-                // 🔥 AGORA VERIFICA SE NÃO É VAZIO
                 $frontendStatus = $request->status;
                 $verificationStatus = $statusMapping[$frontendStatus] ?? 'pending';
 
                 $query->where('verification_status', $verificationStatus);
             }
 
-            // 3. Filtro por verification_status (diretamente) - SÓ SE NÃO FOR VAZIO
             if ($request->has('verification_status') && !empty($request->verification_status)) {
                 $query->where('verification_status', $request->verification_status);
             }
 
-            // 4. Busca - SÓ SE NÃO FOR VAZIO
             if ($request->has('search') && !empty($request->search)) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
@@ -199,29 +186,18 @@ class AdminController extends Controller
                 });
             }
 
-            // ============================================
-            // PAGINAÇÃO E ORDENAÇÃO
-            // ============================================
-
             $perPage = $request->get('per_page', 15);
             $page = $request->get('page', 1);
 
-            // Ordenação
             $sortBy = $request->get('sort_by', 'created_at');
             $sortOrder = $request->get('sort_order', 'desc');
             $query->orderBy($sortBy, $sortOrder);
 
             $users = $query->paginate($perPage, ['*'], 'page', $page);
 
-            // ============================================
-            // FORMATAR PARA O FRONTEND
-            // ============================================
-
             $formattedUsers = $users->map(function ($user) {
-                // Obter dados do profile_info
                 $profileInfo = $user->profile_info ?? [];
 
-                // Determinar status para o frontend
                 $statusMap = [
                     'approved' => 'active',
                     'pending' => 'pending',
@@ -230,7 +206,6 @@ class AdminController extends Controller
 
                 $status = $statusMap[$user->verification_status] ?? 'pending';
 
-                // Instituição
                 $institution = null;
                 if ($user->role === 'student' && isset($profileInfo['student_data']['university'])) {
                     $institution = $profileInfo['student_data']['university'];
@@ -238,7 +213,6 @@ class AdminController extends Controller
                     $institution = $profileInfo['institution'];
                 }
 
-                // Stats do profile_info
                 $statsFromProfile = $profileInfo['stats'] ?? [];
 
                 $surveysCreated = $statsFromProfile['surveys_created'] ?? 0;
@@ -252,8 +226,8 @@ class AdminController extends Controller
                     'email' => $user->email,
                     'phone' => $user->phone,
                     'role' => $user->role,
-                    'status' => $status, // Status para frontend
-                    'verification_status' => $user->verification_status, // mantém original
+                    'status' => $status,
+                    'verification_status' => $user->verification_status,
                     'email_verified_at' => $user->email_verified_at,
                     'created_at' => $user->created_at->toISOString(),
                     'updated_at' => $user->updated_at->toISOString(),
@@ -318,19 +292,13 @@ class AdminController extends Controller
             ], 500);
         }
     }
+
     /**
-     * Obter detalhes de um usuário - CORRIGIDO
-     */
-    /**
-     * Obter detalhes de um usuário - VERSÃO CORRIGIDA
-     */
-    /**
-     * Obter detalhes de um usuário - VERSÃO CORRIGIDA E SEGURA
+     * Obter detalhes de um usuário
      */
     public function getUser($id)
     {
         try {
-            // Carregar usuário apenas com dados básicos
             $user = User::find($id);
 
             if (!$user) {
@@ -340,10 +308,8 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Obter dados do profile_info
             $profileInfo = $user->profile_info ?? [];
 
-            // Mapear verification_status para status
             $statusMap = [
                 'approved' => 'active',
                 'pending' => 'pending',
@@ -352,7 +318,6 @@ class AdminController extends Controller
 
             $status = $statusMap[$user->verification_status] ?? 'pending';
 
-            // Instituição
             $institution = null;
             if ($user->role === 'student' && isset($profileInfo['student_data']['university'])) {
                 $institution = $profileInfo['student_data']['university'];
@@ -360,7 +325,6 @@ class AdminController extends Controller
                 $institution = $profileInfo['institution'];
             }
 
-            // Stats do profile_info (forma segura)
             $statsFromProfile = $profileInfo['stats'] ?? [];
             $surveysCreated = $statsFromProfile['surveys_created'] ?? 0;
             $surveysCompleted = $statsFromProfile['surveys_completed'] ?? 0;
@@ -373,7 +337,7 @@ class AdminController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'role' => $user->role,
-                'status' => $status, // Status para frontend
+                'status' => $status,
                 'verification_status' => $user->verification_status,
                 'email_verified_at' => $user->email_verified_at,
                 'created_at' => $user->created_at->toISOString(),
@@ -413,7 +377,7 @@ class AdminController extends Controller
 
                 'verification_notes' => $profileInfo['verification_notes'] ?? null,
                 'verified_at' => $profileInfo['verified_at'] ?? null,
-                'profile_info' => $profileInfo, // Mantém original para referência
+                'profile_info' => $profileInfo,
             ];
 
             return response()->json([
@@ -434,8 +398,9 @@ class AdminController extends Controller
             ], 500);
         }
     }
+
     /**
-     * Criar novo usuário - CORRIGIDO: remover status, usar verification_status
+     * Criar novo usuário
      */
     public function createUser(Request $request)
     {
@@ -445,11 +410,10 @@ class AdminController extends Controller
                 'email' => 'required|email|unique:users,email',
                 'password' => 'required|string|min:8',
                 'role' => 'required|in:student,participant,admin',
-                'phone' => 'required|string|max:20', // 🔥 MUDAR de 'nullable' para 'required'
+                'phone' => 'required|string|max:20',
                 'status' => 'nullable|in:active,pending,suspended,inactive',
             ]);
 
-            // 🔧 Mapear status para verification_status - CORREÇÃO DE SEGURANÇA
             $statusMapping = [
                 'active' => 'approved',
                 'pending' => 'pending',
@@ -457,12 +421,11 @@ class AdminController extends Controller
                 'inactive' => 'rejected'
             ];
 
-            // 🔥 CORREÇÃO CRÍTICA: Verificar se status existe e não é vazio
-            $verificationStatus = 'pending'; // valor padrão
+            $verificationStatus = 'pending';
             if (isset($validated['status']) && !empty($validated['status'])) {
                 $verificationStatus = $statusMapping[$validated['status']] ?? 'pending';
             } elseif ($validated['role'] === 'admin') {
-                $verificationStatus = 'approved'; // admins são aprovados automaticamente
+                $verificationStatus = 'approved';
             }
 
             $user = User::create([
@@ -470,7 +433,7 @@ class AdminController extends Controller
                 'email' => $validated['email'],
                 'password' => bcrypt($validated['password']),
                 'role' => $validated['role'],
-                'phone' => $validated['phone'], // 🔥 AGORA É SEMPRE PREENCHIDO (required)
+                'phone' => $validated['phone'],
                 'verification_status' => $verificationStatus,
             ]);
 
@@ -482,7 +445,6 @@ class AdminController extends Controller
                 'metadata' => json_encode(['user_id' => $user->id, 'role' => $user->role]),
             ]);
 
-            // Mapear verification_status de volta para status do frontend
             $frontendStatusMapping = [
                 'approved' => 'active',
                 'pending' => 'pending',
@@ -499,7 +461,7 @@ class AdminController extends Controller
                     'role' => $user->role,
                     'status' => $frontendStatusMapping[$user->verification_status] ?? 'pending',
                     'verification_status' => $user->verification_status,
-                    'phone' => $user->phone, // 🔥 Incluir phone na resposta
+                    'phone' => $user->phone,
                 ]
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -509,7 +471,6 @@ class AdminController extends Controller
                 'errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
-
             return response()->json([
                 'success' => false,
                 'message' => 'Erro ao criar usuário',
@@ -519,19 +480,20 @@ class AdminController extends Controller
     }
 
     /**
-     * Atualizar usuário - CORRIGIDO: remover status
+     * Atualizar usuário
      */
     public function updateUser(Request $request, $id)
     {
         try {
             $user = User::findOrFail($id);
+            $oldStatus = $user->verification_status;
 
             $validated = $request->validate([
                 'name' => 'nullable|string|max:255',
                 'email' => 'nullable|email|unique:users,email,' . $id,
                 'role' => 'nullable|in:student,participant,admin',
                 'phone' => 'nullable|string|max:20',
-                'status' => 'nullable|in:active,pending,suspended,inactive', // 🔧 Adicionado
+                'status' => 'nullable|in:active,pending,suspended,inactive',
                 'verification_status' => 'nullable|in:pending,approved,rejected',
                 'balance' => 'nullable|numeric|min:0',
                 'email_notifications' => 'nullable|boolean',
@@ -539,7 +501,10 @@ class AdminController extends Controller
                 'profile_info' => 'nullable|array',
             ]);
 
-            // 🔧 Mapear status para verification_status se status for fornecido
+            // ============ NOTIFICAÇÃO QUANDO STATUS MUDA ============
+            $statusChanged = false;
+            $newStatus = null;
+
             if (isset($validated['status'])) {
                 $statusMapping = [
                     'active' => 'approved',
@@ -547,12 +512,19 @@ class AdminController extends Controller
                     'suspended' => 'rejected',
                     'inactive' => 'rejected'
                 ];
-                $user->verification_status = $statusMapping[$validated['status']];
+                $newStatus = $statusMapping[$validated['status']];
+                if ($user->verification_status !== $newStatus) {
+                    $statusChanged = true;
+                }
+                $user->verification_status = $newStatus;
             } elseif (isset($validated['verification_status'])) {
+                if ($user->verification_status !== $validated['verification_status']) {
+                    $statusChanged = true;
+                }
                 $user->verification_status = $validated['verification_status'];
+                $newStatus = $validated['verification_status'];
             }
 
-            // Atualizar outros campos
             if (isset($validated['name'])) $user->name = $validated['name'];
             if (isset($validated['email'])) $user->email = $validated['email'];
             if (isset($validated['role'])) $user->role = $validated['role'];
@@ -567,6 +539,28 @@ class AdminController extends Controller
             }
 
             $user->save();
+
+            // ============ DISPARAR NOTIFICAÇÃO SE STATUS MUDOU ============
+            if ($statusChanged && $newStatus === 'approved') {
+                try {
+                    $notificationController = new NotificationController();
+                    $notificationController->sendToUser(
+                        $user->id,
+                        'user_approved',
+                        []
+                    );
+
+                    Log::info('🔔 Notificação de aprovação enviada para usuário', [
+                        'user_id' => $user->id,
+                        'user_name' => $user->name
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning('⚠️ Erro ao enviar notificação de aprovação', [
+                        'error' => $e->getMessage(),
+                        'user_id' => $user->id
+                    ]);
+                }
+            }
 
             // Registrar atividade
             ActivityLog::create([
@@ -604,7 +598,9 @@ class AdminController extends Controller
         }
     }
 
-    // 🔧 Método auxiliar para converter verification_status para status
+    /**
+     * Método auxiliar para converter verification_status para status
+     */
     private function getStatusFromVerification($verificationStatus)
     {
         $mapping = [
@@ -624,7 +620,6 @@ class AdminController extends Controller
         try {
             $user = User::findOrFail($id);
 
-            // Não permitir excluir a si mesmo
             if ($user->id === $request->user()->id) {
                 return response()->json([
                     'success' => false,
@@ -657,13 +652,13 @@ class AdminController extends Controller
     }
 
     /**
-     * Ações em massa para usuários - CORRIGIDO: usar verification_status
+     * Ações em massa para usuários
      */
     public function bulkUserActions(Request $request)
     {
         try {
             $validated = $request->validate([
-                'action' => 'required|in:activate,suspend,verify,reject,delete', // 🔧 Adicionado activate/suspend
+                'action' => 'required|in:activate,suspend,verify,reject,delete',
                 'user_ids' => 'required|array',
                 'user_ids.*' => 'exists:users,id',
                 'reason' => 'nullable|string|max:500',
@@ -675,6 +670,7 @@ class AdminController extends Controller
 
             $successCount = 0;
             $failedCount = 0;
+            $notificationController = new NotificationController();
 
             foreach ($userIds as $userId) {
                 try {
@@ -690,22 +686,26 @@ class AdminController extends Controller
                             $user->delete();
                             break;
                         case 'activate':
-                            $user->verification_status = 'approved';
-                            break;
-                        case 'suspend':
-                            $user->verification_status = 'rejected';
-                            break;
                         case 'verify':
+                            $oldStatus = $user->verification_status;
                             $user->verification_status = 'approved';
                             $user->verified_at = now();
+                            $user->save();
+
+                            // Notificar usuário se foi aprovado
+                            if ($oldStatus !== 'approved') {
+                                $notificationController->sendToUser(
+                                    $user->id,
+                                    'user_approved',
+                                    []
+                                );
+                            }
                             break;
+                        case 'suspend':
                         case 'reject':
                             $user->verification_status = 'rejected';
+                            $user->save();
                             break;
-                    }
-
-                    if ($action !== 'delete') {
-                        $user->save();
                     }
 
                     $successCount++;
@@ -751,14 +751,13 @@ class AdminController extends Controller
     }
 
     /**
-     * Exportar usuários - CORRIGIDO: remover status
+     * Exportar usuários
      */
     public function exportUsers(Request $request)
     {
         try {
             $query = User::query();
 
-            // Aplicar filtros
             if ($request->has('role')) {
                 $query->where('role', $request->role);
             }
@@ -776,7 +775,6 @@ class AdminController extends Controller
 
             $users = $query->get();
 
-            // Gerar CSV - REMOVIDO coluna status
             $csvData = "ID,Nome,Email,Telefone,Role,Verificação,Saldo,Email Notif,WhatsApp Notif,Data Cadastro\n";
 
             foreach ($users as $user) {
@@ -795,7 +793,6 @@ class AdminController extends Controller
                 );
             }
 
-            // Criar arquivo temporário
             $filename = 'usuarios_' . date('Y-m-d_H-i-s') . '.csv';
             $filepath = storage_path('app/exports/' . $filename);
 
@@ -805,7 +802,6 @@ class AdminController extends Controller
 
             file_put_contents($filepath, $csvData);
 
-            // Registrar atividade
             ActivityLog::create([
                 'user_id' => $request->user()->id,
                 'action' => 'users_exported',
@@ -839,7 +835,6 @@ class AdminController extends Controller
         try {
             $query = Transaction::with('user');
 
-            // Filtros
             if ($request->has('type')) {
                 $query->where('type', $request->type);
             }
@@ -867,11 +862,9 @@ class AdminController extends Controller
                 $query->where('amount', '<=', $request->max_amount);
             }
 
-            // Paginação
             $perPage = $request->get('limit', 15);
             $page = $request->get('page', 1);
 
-            // Ordenação
             $sortBy = $request->get('sort_by', 'created_at');
             $sortOrder = $request->get('sort_order', 'desc');
             $query->orderBy($sortBy, $sortOrder);
@@ -947,6 +940,32 @@ class AdminController extends Controller
 
             if ($validated['status'] === 'completed') {
                 $transaction->completed_at = now();
+
+                // ============ NOTIFICAR USUÁRIO SOBRE SAQUE COMPLETO ============
+                try {
+                    if ($transaction->type === 'withdrawal') {
+                        $notificationController = new NotificationController();
+                        $notificationController->sendToUser(
+                            $transaction->user_id,
+                            'withdrawal_completed',
+                            [
+                                'amount' => $transaction->amount,
+                                'withdrawal_id' => $transaction->id
+                            ]
+                        );
+
+                        Log::info('💰 Notificação de saque completo enviada', [
+                            'user_id' => $transaction->user_id,
+                            'transaction_id' => $transaction->id,
+                            'amount' => $transaction->amount
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('⚠️ Erro ao enviar notificação de saque completo', [
+                        'error' => $e->getMessage(),
+                        'transaction_id' => $transaction->id
+                    ]);
+                }
             }
 
             $transaction->save();
@@ -991,26 +1010,31 @@ class AdminController extends Controller
     public function processPayments(Request $request)
     {
         try {
-            // Buscar transações pendentes
             $pendingTransactions = Transaction::where('status', 'pending')
                 ->where('type', 'withdrawal')
                 ->get();
 
             $processed = [];
+            $notificationController = new NotificationController();
 
             foreach ($pendingTransactions as $transaction) {
                 try {
-                    // Aqui você implementaria a lógica real de processamento
-                    // (integração com gateway de pagamento, banco, etc.)
-
-                    // Simulação: processamento bem-sucedido
                     $transaction->status = 'completed';
                     $transaction->completed_at = now();
                     $transaction->save();
 
+                    // Notificar usuário
+                    $notificationController->sendToUser(
+                        $transaction->user_id,
+                        'withdrawal_completed',
+                        [
+                            'amount' => $transaction->amount,
+                            'withdrawal_id' => $transaction->id
+                        ]
+                    );
+
                     $processed[] = $transaction;
 
-                    // Registrar atividade
                     ActivityLog::create([
                         'user_id' => $request->user()->id,
                         'action' => 'payment_processed',
@@ -1023,7 +1047,6 @@ class AdminController extends Controller
                         ]),
                     ]);
                 } catch (\Exception $e) {
-                    // Marcar como falha
                     $transaction->status = 'failed';
                     $transaction->save();
                 }
@@ -1046,16 +1069,10 @@ class AdminController extends Controller
     /**
      * Listar pesquisas
      */
-    /**
-     * Listar pesquisas - VERSÃO CORRIGIDA
-     */
     public function getSurveys(Request $request)
     {
         try {
             $query = Survey::query();
-
-            // 🔥 REMOVER o with('user') problemático
-            // Em vez disso, usar join ou carregar apenas o necessário
 
             if ($request->has('status')) {
                 $query->where('status', $request->status);
@@ -1086,7 +1103,6 @@ class AdminController extends Controller
             $surveys = $query->paginate($perPage, ['*'], 'page', $page);
 
             $formattedSurveys = $surveys->map(function ($survey) {
-                // 🔥 Carregar usuário apenas se necessário, de forma segura
                 $user = User::find($survey->user_id);
 
                 return [
@@ -1136,7 +1152,7 @@ class AdminController extends Controller
                 'reason' => 'nullable|string|max:500',
             ]);
 
-            $survey = Survey::findOrFail($id);
+            $survey = Survey::with('user')->findOrFail($id);
             $oldStatus = $survey->status;
 
             $survey->status = $validated['status'];
@@ -1151,6 +1167,80 @@ class AdminController extends Controller
 
             $survey->save();
 
+            // ============ NOTIFICAÇÕES QUANDO STATUS DA PESQUISA MUDA ============
+            try {
+                $notificationController = new NotificationController();
+
+                if ($validated['status'] === 'published') {
+                    // Notificar estudantes que a pesquisa foi publicada
+                    $notificationController->sendToUser(
+                        $survey->user_id,
+                        'payment_confirmed',
+                        [
+                            'survey_title' => $survey->title,
+                            'survey_id' => $survey->id
+                        ]
+                    );
+
+                    // Notificar todos os participantes sobre nova pesquisa
+                    $participants = User::where('role', 'participant')
+                        ->where('verification_status', 'approved')
+                        ->get();
+
+                    foreach ($participants as $participant) {
+                        $notificationController->sendToUser(
+                            $participant->id,
+                            'new_survey_available',
+                            [
+                                'student_name' => $survey->user->name,
+                                'survey_title' => $survey->title,
+                                'survey_id' => $survey->id
+                            ]
+                        );
+                    }
+
+                    Log::info('📊 Notificações de nova pesquisa enviadas', [
+                        'survey_id' => $survey->id,
+                        'participants_count' => $participants->count()
+                    ]);
+                } elseif ($validated['status'] === 'approved') {
+                    // Notificar estudante que pesquisa foi aprovada para pagamento
+                    $notificationController->sendToUser(
+                        $survey->user_id,
+                        'survey_approved_for_payment',
+                        [
+                            'survey_title' => $survey->title,
+                            'survey_id' => $survey->id
+                        ]
+                    );
+
+                    Log::info('💰 Notificação de pesquisa aprovada enviada', [
+                        'survey_id' => $survey->id,
+                        'student_id' => $survey->user_id
+                    ]);
+                } elseif ($validated['status'] === 'closed') {
+                    // Notificar estudante que pesquisa foi encerrada
+                    $notificationController->sendToUser(
+                        $survey->user_id,
+                        'survey_closed',
+                        [
+                            'survey_title' => $survey->title,
+                            'survey_id' => $survey->id
+                        ]
+                    );
+
+                    Log::info('🔚 Notificação de pesquisa encerrada enviada', [
+                        'survey_id' => $survey->id,
+                        'student_id' => $survey->user_id
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Erro ao enviar notificações de pesquisa', [
+                    'error' => $e->getMessage(),
+                    'survey_id' => $survey->id
+                ]);
+            }
+
             // Registrar atividade
             ActivityLog::create([
                 'user_id' => $request->user()->id,
@@ -1160,7 +1250,7 @@ class AdminController extends Controller
                     'survey_id' => $survey->id,
                     'old_status' => $oldStatus,
                     'new_status' => $survey->status,
-                    'researcher_id' => $survey->researcher_id
+                    'researcher_id' => $survey->user_id
                 ]),
             ]);
 
@@ -1223,7 +1313,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Gerar relatório - CORRIGIDO: remover referência a status
+     * Gerar relatório
      */
     public function generateReport(Request $request)
     {
@@ -1236,7 +1326,6 @@ class AdminController extends Controller
                 'filters' => 'nullable|array',
             ]);
 
-            // Gerar dados do relatório
             $reportData = [
                 'type' => $validated['type'],
                 'period' => [
@@ -1249,7 +1338,6 @@ class AdminController extends Controller
                 'data' => $this->generateReportData($validated['type'], $validated['date_from'], $validated['date_to'], $validated['filters'] ?? [])
             ];
 
-            // Registrar atividade
             ActivityLog::create([
                 'user_id' => $request->user()->id,
                 'action' => 'report_generated',
@@ -1265,7 +1353,7 @@ class AdminController extends Controller
                 'success' => true,
                 'message' => 'Relatório gerado com sucesso',
                 'data' => [
-                    'url' => '#', // URL para download do relatório
+                    'url' => '#',
                     'data' => $reportData
                 ]
             ]);
@@ -1296,26 +1384,21 @@ class AdminController extends Controller
     }
 
     /**
-     * Gerar dados do relatório - CORRIGIDO: remover status
+     * Gerar dados do relatório
      */
     private function generateReportData($type, $dateFrom, $dateTo, $filters = [])
     {
         switch ($type) {
             case 'users':
                 return $this->generateUsersReport($dateFrom, $dateTo, $filters);
-
             case 'surveys':
                 return $this->generateSurveysReport($dateFrom, $dateTo, $filters);
-
             case 'transactions':
                 return $this->generateTransactionsReport($dateFrom, $dateTo, $filters);
-
             case 'financial':
                 return $this->generateFinancialReport($dateFrom, $dateTo, $filters);
-
             case 'activity':
                 return $this->generateActivityReport($dateFrom, $dateTo, $filters);
-
             default:
                 return [];
         }
@@ -1329,7 +1412,6 @@ class AdminController extends Controller
             $query->where('role', $filters['role']);
         }
 
-        // CORRIGIDO: usar verification_status em vez de status
         return [
             'total' => $query->count(),
             'by_role' => $query->select('role', DB::raw('count(*) as count'))
