@@ -14,26 +14,6 @@ use Illuminate\Support\Facades\Cache;
 
 class NotificationConfigController extends Controller
 {
-    /**
-     * Construtor - verifica permissões
-     */
-    public function __construct()
-    {
-        // Desativa o warning do Intelephense
-        /** @disregard P1013 */
-        $this->middleware('auth:sanctum');
-
-        /** @disregard P1013 */
-        $this->middleware('role:admin')->except([
-            'getUserPreferences',
-            'updateUserPreferences',
-            'getGeneralSettings',
-            'getTypes',
-        ]);
-    }
-
-    // ... resto do código
-
     // ==============================================
     // CONFIGURAÇÕES GLOBAIS (APENAS ADMIN)
     // ==============================================
@@ -44,6 +24,14 @@ class NotificationConfigController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $query = NotificationConfig::query();
 
@@ -109,6 +97,14 @@ class NotificationConfigController extends Controller
      */
     public function show(int $id): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $config = NotificationConfig::find($id);
 
@@ -138,6 +134,14 @@ class NotificationConfigController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $validator = Validator::make($request->all(), [
                 'type' => 'required|string|unique:notification_configs,type',
@@ -202,6 +206,14 @@ class NotificationConfigController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $config = NotificationConfig::find($id);
 
@@ -273,6 +285,14 @@ class NotificationConfigController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $config = NotificationConfig::find($id);
 
@@ -318,6 +338,14 @@ class NotificationConfigController extends Controller
      */
     public function duplicate(int $id): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $config = NotificationConfig::find($id);
 
@@ -360,6 +388,14 @@ class NotificationConfigController extends Controller
      */
     public function toggle(int $id): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $config = NotificationConfig::find($id);
 
@@ -393,6 +429,14 @@ class NotificationConfigController extends Controller
      */
     public function getTypes(): JsonResponse
     {
+        // Verificação de autenticação
+        if (!Auth::check()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Usuário não autenticado'
+            ], 401);
+        }
+
         try {
             $types = NotificationConfig::select('type')
                 ->orderBy('type')
@@ -431,6 +475,14 @@ class NotificationConfigController extends Controller
      */
     public function getStats(): JsonResponse
     {
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
+
         try {
             $stats = [
                 'total' => NotificationConfig::count(),
@@ -503,10 +555,6 @@ class NotificationConfigController extends Controller
      * Atualizar preferências do usuário atual
      * PUT /api/notification-configs/user-preferences
      */
-    /**
-     * Atualizar preferências do usuário atual
-     * PUT /api/notification-configs/user-preferences
-     */
     public function updateUserPreferences(Request $request): JsonResponse
     {
         try {
@@ -551,9 +599,7 @@ class NotificationConfigController extends Controller
             // Atualizar profile_info
             $profileInfo['notification_preferences'] = $newPreferences;
             $user->profile_info = $profileInfo;
-
-            // ✅ Usar update() em vez de save() para evitar warning do Intelephense
-            $user->update(['profile_info' => $profileInfo]);
+            $user->save();
 
             Log::info('Preferências atualizadas', [
                 'user_id' => $user->id,
@@ -670,15 +716,15 @@ class NotificationConfigController extends Controller
      */
     public function updateGeneralSettings(Request $request): JsonResponse
     {
-        try {
-            // Verificar se é admin
-            if (!Auth::user() || Auth::user()->role !== 'admin') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Acesso não autorizado'
-                ], 403);
-            }
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
 
+        try {
             $validator = Validator::make($request->all(), [
                 'language' => 'nullable|in:pt,en,fr',
                 'date_format' => 'nullable|in:pt,en,iso',
@@ -740,14 +786,15 @@ class NotificationConfigController extends Controller
      */
     public function cleanup(Request $request): JsonResponse
     {
-        try {
-            if (!Auth::user() || Auth::user()->role !== 'admin') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Acesso não autorizado'
-                ], 403);
-            }
+        // Verificação de admin
+        if (!Auth::check() || Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Acesso não autorizado'
+            ], 403);
+        }
 
+        try {
             $days = $request->get('days', 30);
 
             $deleted = DB::table('notifications')
