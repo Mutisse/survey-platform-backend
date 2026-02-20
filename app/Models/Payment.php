@@ -11,7 +11,10 @@ class Payment extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected $table = 'payments';
+
     protected $fillable = [
+        'user_id',
         'payment_intent_id',
         'client_secret',
         'amount',
@@ -36,11 +39,11 @@ class Payment extends Model
     ];
 
     /**
-     * Relacionamento com usuário (assumindo que user tem campo phone)
+     * Relacionamento com usuário
      */
     public function user()
     {
-        return $this->belongsTo(User::class, 'customer_phone', 'phone');
+        return $this->belongsTo(User::class);
     }
 
     /**
