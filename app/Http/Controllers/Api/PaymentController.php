@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\Survey;
-use App\Models\SurveyResponse;
 use App\Services\PaymentService;
 use App\Http\Requests\PaymentRequest;
 use App\Http\Resources\PaymentResource;
@@ -31,6 +30,11 @@ class PaymentController extends Controller
     public function store(PaymentRequest $request): JsonResponse
     {
         try {
+            Log::info('📝 Iniciando criação de pagamento', [
+                'amount' => $request->amount,
+                'phone' => $request->customer_phone
+            ]);
+
             $result = $this->paymentService->createPaymentIntent([
                 'amount' => $request->amount,
                 'currency' => $request->currency ?? 'MZN',
@@ -41,6 +45,10 @@ class PaymentController extends Controller
             ]);
 
             if ($result['success']) {
+                Log::info('✅ Pagamento criado com sucesso', [
+                    'payment_id' => $result['payment']->id
+                ]);
+
                 return response()->json([
                     'status' => 'success',
                     'message' => $result['message'],
@@ -51,13 +59,21 @@ class PaymentController extends Controller
                 ], 201);
             }
 
+            Log::warning('⚠️ Falha ao criar pagamento', [
+                'message' => $result['message']
+            ]);
+
             return response()->json([
                 'status' => 'error',
                 'message' => $result['message'],
                 'code' => $result['code'] ?? 'ERROR'
             ], 400);
         } catch (\Exception $e) {
-            Log::error('Erro no controller store: ' . $e->getMessage());
+            Log::error('❌ Erro no controller store: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
 
             return response()->json([
                 'status' => 'error',
@@ -73,24 +89,49 @@ class PaymentController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $payments = Payment::query()
-                ->when($request->status, function ($query, $status) {
-                    return $query->where('status', $status);
-                })
-                ->when($request->phone, function ($query, $phone) {
-                    return $query->where('customer_phone', 'like', "%$phone%");
-                })
-                ->when($request->mpesa_reference, function ($query, $ref) {
-                    return $query->where('mpesa_reference', 'like', "%$ref%");
-                })
-                ->when($request->date_from, function ($query, $date) {
-                    return $query->whereDate('created_at', '>=', $date);
-                })
-                ->when($request->date_to, function ($query, $date) {
-                    return $query->whereDate('created_at', '<=', $date);
-                })
-                ->orderBy($request->sort_by ?? 'created_at', $request->sort_order ?? 'desc')
-                ->paginate($request->per_page ?? 15);
+            Log::info('📊 Iniciando listagem de pagamentos', [
+                'filters' => $request->all()
+            ]);
+
+            $query = Payment::query()->with('user'); // ✅ Carregar relacionamento
+
+            // Filtros
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            if ($request->has('phone')) {
+                $query->where('customer_phone', 'like', "%{$request->phone}%");
+            }
+
+            if ($request->has('mpesa_reference')) {
+                $query->where('mpesa_reference', 'like', "%{$request->mpesa_reference}%");
+            }
+
+            if ($request->has('user_id')) {
+                $query->where('user_id', $request->user_id);
+            }
+
+            if ($request->has('date_from') && $request->has('date_to')) {
+                $query->whereBetween('created_at', [
+                    $request->date_from,
+                    $request->date_to
+                ]);
+            }
+
+            // Ordenação
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
+            $query->orderBy($sortBy, $sortOrder);
+
+            // Paginação
+            $perPage = $request->get('per_page', 15);
+            $payments = $query->paginate($perPage);
+
+            Log::info('📊 Pagamentos encontrados', [
+                'total' => $payments->total(),
+                'current_page' => $payments->currentPage()
+            ]);
 
             return response()->json([
                 'status' => 'success',
@@ -111,11 +152,15 @@ class PaymentController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
-            Log::error('Erro ao listar pagamentos: ' . $e->getMessage());
+            Log::error('❌ Erro ao listar pagamentos: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'Erro ao listar pagamentos'
+                'message' => 'Erro ao listar pagamentos: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -127,9 +172,12 @@ class PaymentController extends Controller
     public function show(int $id): JsonResponse
     {
         try {
+            Log::info('🔍 Buscando pagamento', ['id' => $id]);
+
             $payment = Payment::with('user')->find($id);
 
             if (!$payment) {
+                Log::warning('⚠️ Pagamento não encontrado', ['id' => $id]);
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Pagamento não encontrado'
@@ -141,8 +189,7 @@ class PaymentController extends Controller
                 'data' => new PaymentResource($payment)
             ]);
         } catch (\Exception $e) {
-            Log::error('Erro ao buscar pagamento: ' . $e->getMessage());
-
+            Log::error('❌ Erro ao buscar pagamento: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Erro ao buscar pagamento'
@@ -174,8 +221,7 @@ class PaymentController extends Controller
                 'message' => $result['message']
             ], 404);
         } catch (\Exception $e) {
-            Log::error('Erro ao verificar status: ' . $e->getMessage());
-
+            Log::error('❌ Erro ao verificar status: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Erro ao verificar status'
@@ -192,15 +238,13 @@ class PaymentController extends Controller
         try {
             $payload = $request->all();
 
-            Log::info('Webhook recebido', ['payload' => $payload]);
+            Log::info('🔄 Webhook recebido', ['payload' => $payload]);
 
             $result = $this->paymentService->processWebhook($payload);
 
-            // ============ NOTIFICAR APÓS PROCESSAMENTO DO WEBHOOK ============
             if ($result['success'] && isset($result['payment'])) {
                 $payment = $result['payment'];
 
-                // Se o pagamento foi confirmado com sucesso
                 if ($payment->status === 'success') {
                     $this->sendPaymentSuccessNotifications($payment);
                 }
@@ -218,8 +262,7 @@ class PaymentController extends Controller
                 'message' => 'Webhook recebido mas não processado'
             ]);
         } catch (\Exception $e) {
-            Log::error('Erro no webhook: ' . $e->getMessage());
-
+            Log::error('❌ Erro no webhook: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Erro ao processar webhook'
@@ -265,8 +308,7 @@ class PaymentController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
-            Log::error('Erro ao gerar resumo: ' . $e->getMessage());
-
+            Log::error('❌ Erro ao gerar resumo: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Erro ao gerar resumo'
@@ -290,11 +332,9 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // Atualizar status do pagamento
             $payment->status = 'success';
             $payment->save();
 
-            // Enviar notificações
             $this->sendPaymentSuccessNotifications($payment);
 
             return response()->json([
@@ -303,8 +343,7 @@ class PaymentController extends Controller
                 'data' => new PaymentResource($payment)
             ]);
         } catch (\Exception $e) {
-            Log::error('Erro ao confirmar pagamento: ' . $e->getMessage());
-
+            Log::error('❌ Erro ao confirmar pagamento: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Erro ao confirmar pagamento'
@@ -320,11 +359,9 @@ class PaymentController extends Controller
         try {
             $notificationController = new NotificationController();
 
-            // Buscar metadados do pagamento (pode conter survey_id, etc)
             $metadata = $payment->metadata ?? [];
             $surveyId = $metadata['survey_id'] ?? null;
 
-            // 1. Notificar o ESTUDANTE que o pagamento foi confirmado
             if ($payment->user_id) {
                 $notificationController->sendToUser(
                     $payment->user_id,
@@ -337,23 +374,19 @@ class PaymentController extends Controller
                     ]
                 );
 
-                Log::info('💰 Notificação de pagamento confirmado enviada para estudante', [
+                Log::info('💰 Notificação de pagamento enviada', [
                     'user_id' => $payment->user_id,
                     'payment_id' => $payment->id,
-                    'amount' => $payment->amount
                 ]);
             }
 
-            // 2. Se for pagamento de pesquisa (tem survey_id), notificar TODOS OS PARTICIPANTES
             if ($surveyId) {
                 $survey = Survey::with('user')->find($surveyId);
 
                 if ($survey) {
-                    // Atualizar status da pesquisa para 'active' (publicada)
                     $survey->status = 'active';
                     $survey->save();
 
-                    // Buscar todos os participantes ativos
                     $participants = User::where('role', 'participant')
                         ->where('verification_status', 'approved')
                         ->get();
@@ -370,15 +403,9 @@ class PaymentController extends Controller
                             ]
                         );
                     }
-
-                    Log::info('📊 Notificações de nova pesquisa enviadas para participantes', [
-                        'survey_id' => $survey->id,
-                        'participants_count' => $participants->count()
-                    ]);
                 }
             }
 
-            // 3. Notificar ADMIN sobre o pagamento recebido (opcional)
             $admins = User::where('role', 'admin')->get();
             foreach ($admins as $admin) {
                 $notificationController->sendToUser(
@@ -393,9 +420,9 @@ class PaymentController extends Controller
                 );
             }
         } catch (\Exception $e) {
-            Log::warning('⚠️ Erro ao enviar notificações de pagamento', [
+            Log::warning('⚠️ Erro ao enviar notificações', [
                 'error' => $e->getMessage(),
-                'payment_id' => $payment->id
+                'payment_id' => $payment->id,
             ]);
         }
     }
@@ -425,9 +452,8 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // Criar pagamento
             $result = $this->paymentService->createPaymentIntent([
-                'amount' => $survey->price ?? 100, // Preço da pesquisa
+                'amount' => $survey->price ?? 100,
                 'currency' => 'MZN',
                 'customer_phone' => $user->phone,
                 'payment_method' => 'mpesa',
@@ -456,8 +482,7 @@ class PaymentController extends Controller
                 'message' => $result['message']
             ], 400);
         } catch (\Exception $e) {
-            Log::error('Erro ao pagar pesquisa: ' . $e->getMessage());
-
+            Log::error('❌ Erro ao pagar pesquisa: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Erro ao processar pagamento'

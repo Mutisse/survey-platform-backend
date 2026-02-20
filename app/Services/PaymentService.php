@@ -62,17 +62,22 @@ class PaymentService
                 /** @var array $responseData */
                 $responseData = $response->json();
 
+                // ✅ CORRIGIDO: Incluindo todos os campos necessários
                 $payment = Payment::create([
                     'user_id' => $metadata['user_id'] ?? null,
+                    'payment_intent_id' => $responseData['payment_intent_id'] ?? null,
+                    'client_secret' => $responseData['client_secret'] ?? null,
                     'amount' => $data['amount'],
                     'currency' => $data['currency'] ?? 'MZN',
                     'customer_phone' => $data['customer_phone'],
                     'payment_method' => $data['payment_method'] ?? 'mpesa',
+                    'provider' => 'klc',
                     'status' => 'pending',
+                    'mpesa_reference' => $responseData['reference'] ?? null,
+                    'mpesa_response_code' => $responseData['response_code'] ?? null,
+                    'mpesa_response_message' => $responseData['message'] ?? null,
                     'metadata' => $metadata,
                     'idempotency_key' => $idempotencyKey,
-                    'client_secret' => $responseData['client_secret'] ?? null,
-                    'mpesa_reference' => $responseData['reference'] ?? null,
                 ]);
 
                 Log::info('✅ Pagamento criado com sucesso', [
@@ -97,7 +102,6 @@ class PaymentService
                 'message' => 'Erro ao processar pagamento: ' . ($response->json()['message'] ?? 'Erro desconhecido'),
                 'code' => 'API_ERROR',
             ];
-
         } catch (\Exception $e) {
             Log::error('❌ Exceção no createPaymentIntent: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
@@ -146,6 +150,8 @@ class PaymentService
 
                 if (isset($responseData['status'])) {
                     $payment->status = $responseData['status'];
+                    $payment->mpesa_response_code = $responseData['response_code'] ?? null;
+                    $payment->mpesa_response_message = $responseData['message'] ?? null;
                     $payment->save();
                 }
 
@@ -160,7 +166,6 @@ class PaymentService
                 'message' => 'Erro ao verificar status',
                 'payment' => $payment,
             ];
-
         } catch (\Exception $e) {
             Log::error('❌ Erro ao verificar status: ' . $e->getMessage());
 
@@ -196,6 +201,8 @@ class PaymentService
 
             if (isset($payload['status'])) {
                 $payment->status = $payload['status'];
+                $payment->mpesa_response_code = $payload['response_code'] ?? null;
+                $payment->mpesa_response_message = $payload['message'] ?? null;
                 $payment->save();
 
                 Log::info('✅ Status do pagamento atualizado', [
@@ -208,7 +215,6 @@ class PaymentService
                 'success' => true,
                 'payment' => $payment,
             ];
-
         } catch (\Exception $e) {
             Log::error('❌ Erro ao processar webhook: ' . $e->getMessage());
 
@@ -287,7 +293,6 @@ class PaymentService
                     ]
                 );
             }
-
         } catch (\Exception $e) {
             Log::warning('⚠️ Erro ao enviar notificações', [
                 'error' => $e->getMessage(),

@@ -39,11 +39,11 @@ class Payment extends Model
     ];
 
     /**
-     * Relacionamento com usuário
+     * Relacionamento com usuário - CORRIGIDO com chaves explícitas
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'user_id', 'id');
     }
 
     /**
@@ -63,6 +63,22 @@ class Payment extends Model
     }
 
     /**
+     * Escopo para pagamentos por usuário
+     */
+    public function scopeByUser($query, $userId)
+    {
+        return $query->where('user_id', $userId);
+    }
+
+    /**
+     * Escopo para pagamentos por período
+     */
+    public function scopeBetweenDates($query, $startDate, $endDate)
+    {
+        return $query->whereBetween('created_at', [$startDate, $endDate]);
+    }
+
+    /**
      * Verifica se o pagamento foi bem-sucedido
      */
     public function isSuccessful(): bool
@@ -76,5 +92,36 @@ class Payment extends Model
     public function isPending(): bool
     {
         return $this->status === 'pending';
+    }
+
+    /**
+     * Verifica se o pagamento falhou
+     */
+    public function isFailed(): bool
+    {
+        return in_array($this->status, ['failed', 'cancelled']);
+    }
+
+    /**
+     * Formata o valor do pagamento
+     */
+    public function getFormattedAmountAttribute(): string
+    {
+        return number_format($this->amount, 2, ',', '.') . ' ' . $this->currency;
+    }
+
+    /**
+     * Obtém o status formatado
+     */
+    public function getStatusLabelAttribute(): string
+    {
+        return match($this->status) {
+            'success' => 'Pago',
+            'pending' => 'Pendente',
+            'processing' => 'Processando',
+            'failed' => 'Falhou',
+            'cancelled' => 'Cancelado',
+            default => ucfirst($this->status)
+        };
     }
 }
